@@ -13,15 +13,60 @@ _SENSITIVE_KEY = re.compile(
     r"(?:password|passphrase|token|api[_-]?key|community|authorization|cookie|secret|private[_-]?key)",
     re.IGNORECASE,
 )
-_AUTH = re.compile(
-    r"(?i)\b(authorization\s*[:=]\s*)"
-    r"(?:(?:basic|bearer)\s+)?(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+_QUOTED_AUTH_DOUBLE = re.compile(r'(?i)("authorization"\s*:\s*)(")((?:\\.|[^"\\])*)(")')
+_QUOTED_AUTH_SINGLE = re.compile(r"(?i)('authorization'\s*:\s*)(')((?:\\.|[^'\\])*)(')")
+_AUTH_HEADER = re.compile(r"(?i)\b(authorization\s*[:=]\s*)([^\r\n]*)")
+_STRUCTURED_FIELD = re.compile(
+    r",\s*(?P<quote>[\"']?)(?P<key>[a-z_][a-z0-9_-]*)(?P=quote)\s*[:=]",
+    re.IGNORECASE,
 )
+_SEMICOLON_FIELD = re.compile(r";(?=\s)")
+_AUTH_PARAMETERS = {
+    "algorithm",
+    "cnonce",
+    "credential",
+    "nc",
+    "nonce",
+    "opaque",
+    "qop",
+    "realm",
+    "response",
+    "signature",
+    "signedheaders",
+    "uri",
+    "username",
+}
 _ASSIGNMENT = re.compile(
     r"(?i)\b(password|passphrase|token|api[_-]?key|community|cookie|client_secret|secret)"
     r"(\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
 )
 _URI_USERINFO = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s/:@]+:)([^\s/@]+)(@)", re.IGNORECASE)
+
+
+def _redact_quoted_authorization(match: re.Match[str]) -> str:
+    return f"{match.group(1)}{match.group(2)}{REDACTED}{match.group(4)}"
+
+
+def _redact_authorization_header(match: re.Match[str]) -> str:
+    value = match.group(2)
+    boundary = len(value)
+    semicolon = _SEMICOLON_FIELD.search(value)
+    if semicolon:
+        boundary = semicolon.start()
+    parameterized = False
+    for field in _STRUCTURED_FIELD.finditer(value):
+        if field.start() >= boundary:
+            break
+        parameterized = parameterized or "=" in value[: field.start()]
+        if field.group("quote"):
+            boundary = field.start()
+            break
+        if not parameterized and field.group("key").lower() not in _AUTH_PARAMETERS:
+            boundary = field.start()
+            break
+        parameterized = True
+    suffix = _AUTH_HEADER.sub(_redact_authorization_header, value[boundary:])
+    return f"{match.group(1)}{REDACTED}{suffix}"
 
 
 class Redactor:
@@ -48,7 +93,9 @@ class Redactor:
         result = str(value)
         for variant in self._variants:
             result = result.replace(variant, REDACTED)
-        result = _AUTH.sub(r"\1" + REDACTED, result)
+        result = _QUOTED_AUTH_DOUBLE.sub(_redact_quoted_authorization, result)
+        result = _QUOTED_AUTH_SINGLE.sub(_redact_quoted_authorization, result)
+        result = _AUTH_HEADER.sub(_redact_authorization_header, result)
         result = _ASSIGNMENT.sub(r"\1\2" + REDACTED, result)
         return _URI_USERINFO.sub(r"\1" + REDACTED + r"\3", result)
 
