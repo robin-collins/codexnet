@@ -249,7 +249,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** mixed SNMP/SSH fixture yields expected port map and conflicts are disclosed rather than silently overwritten.
 - **Balance:** each field exposes source and age; stale data is marked.
 
-### [ ] G4 Stage 4 gate
+### [x] G4 Stage 4 gate
 
 - **Depends on:** T404
 - **Verify:** collectors pass mock/fixture tests and an explicitly approved lab-device test; failure isolation, target restriction, command allowlist, redaction, and DOCX sections pass.
