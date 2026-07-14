@@ -305,6 +305,61 @@ def test_empty_user_uri_password_is_redacted() -> None:
     )
 
 
+def test_authorization_sequence_values_are_redacted_as_one_bounded_value() -> None:
+    json_text = (
+        '{"Authorization": ["Bearer synthetic-one", ["nested synthetic-two"], []], '
+        '"safe": "visible", "Authentication": []}'
+    )
+    assert Redactor().text(json_text) == (
+        f'{{"Authorization": "{REDACTED}", "safe": "visible", "Authentication": "{REDACTED}"}}'
+    )
+    python_text = (
+        "{b'Authorization': (b'Basic synthetic-three', 'escaped \\' ] value'), 'safe': 'visible'}"
+    )
+    assert Redactor().text(python_text) == (
+        f"{{b'Authorization': '{REDACTED}', 'safe': 'visible'}}"
+    )
+
+
+def test_multiple_and_nested_sequence_values_preserve_adjacent_syntax() -> None:
+    value = (
+        "{'Authorization': [('first',), ['second', ('third',)]], 'safe': 4, "
+        "'Authentication': (b'fourth', b'fifth')}"
+    )
+    assert Redactor().text(value) == (
+        f"{{'Authorization': '{REDACTED}', 'safe': 4, 'Authentication': '{REDACTED}'}}"
+    )
+
+
+def test_malformed_authorization_sequences_fail_closed_at_line_boundary() -> None:
+    malformed = (
+        '{"Authorization": ["synthetic first"\n'
+        '  "synthetic continuation"\n'
+        '"safe-next-line": "visible"}'
+    )
+    assert Redactor().text(malformed) == (
+        f'{{"Authorization": "{REDACTED}"\n"safe-next-line": "visible"}}'
+    )
+    mismatched = "{'Authentication': ['synthetic')\nSafe: visible"
+    assert Redactor().text(mismatched) == (f"{{'Authentication': '{REDACTED}'\nSafe: visible")
+    no_newline = "{'Authorization': ['synthetic unterminated'"
+    assert Redactor().text(no_newline) == f"{{'Authorization': '{REDACTED}'"
+    terminal_continuation = "{'Authentication': ['synthetic'\n  'continued without newline'"
+    assert Redactor().text(terminal_continuation) == (f"{{'Authentication': '{REDACTED}'")
+
+
+def test_authorization_sequence_depth_and_size_are_bounded() -> None:
+    too_deep = '"Authorization": ' + "[" * 17 + '"synthetic"' + "]" * 17 + "\nSafe: visible"
+    assert Redactor().text(too_deep) == f'"Authorization": "{REDACTED}"\nSafe: visible'
+    oversized = '"Authentication": ["' + ("x" * 65_536) + '"]\nSafe: visible'
+    assert Redactor().text(oversized) == f'"Authentication": "{REDACTED}"\nSafe: visible'
+
+
+def test_non_auth_and_malformed_sequence_keys_are_unchanged() -> None:
+    safe = "{'authorization_status': ['visible'], b'\\xff': ['visible'], b'\\xZZ': ['visible']}"
+    assert Redactor().text(safe) == safe
+
+
 def test_exception_keeps_only_type_and_redacted_message() -> None:
     rendered = Redactor(["synthetic-value"]).exception(RuntimeError("token=synthetic-value"))
     assert rendered == f"RuntimeError: token={REDACTED}"

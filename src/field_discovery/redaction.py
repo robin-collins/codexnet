@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import json
 import re
@@ -75,6 +76,13 @@ _PERCENT_TOKEN = re.compile(
 )
 _HEX_TOKEN = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{8,}(?![0-9A-Fa-f])")
 _MAX_DECODE_PASSES = 2
+_MAX_SEQUENCE_DEPTH = 16
+_MAX_SEQUENCE_CHARS = 65_536
+_AUTH_SEQUENCE_START = re.compile(
+    r"(?P<key>(?:b)?\"(?:\\.|[^\"\\])*\"|(?:b)?'(?:\\.|[^'\\])*')"
+    r"(?P<separator>\s*:\s*)(?P<open>[\[(])",
+    re.IGNORECASE,
+)
 
 
 def _redact_quoted_authorization(match: re.Match[str]) -> str:
@@ -93,6 +101,91 @@ def _redact_escaped_json_authorization(match: re.Match[str]) -> str:
     if key.casefold() not in {"authorization", "authentication"}:
         return match.group(0)
     return f'{match.group("key")}{match.group("separator")}\\"{REDACTED}\\"'
+
+
+def _is_authorization_key(token: str) -> bool:
+    try:
+        key = ast.literal_eval(token)
+    except (SyntaxError, ValueError):
+        return False
+    if isinstance(key, bytes):
+        try:
+            key = key.decode("ascii")
+        except UnicodeDecodeError:
+            return False
+    return isinstance(key, str) and key.casefold() in {"authorization", "authentication"}
+
+
+def _sequence_end(value: str, start: int) -> int | None:
+    pairs = {"[": "]", "(": ")"}
+    stack = [pairs[value[start]]]
+    quote_character: str | None = None
+    escaped = False
+    limit = min(len(value), start + _MAX_SEQUENCE_CHARS)
+    for index in range(start + 1, limit):
+        character = value[index]
+        if quote_character is not None:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == quote_character:
+                quote_character = None
+            continue
+        if character in {"'", '"'}:
+            quote_character = character
+        elif character in pairs:
+            if len(stack) >= _MAX_SEQUENCE_DEPTH:
+                return None
+            stack.append(pairs[character])
+        elif character in {
+            "]",
+            ")",
+        }:
+            if character != stack[-1]:
+                return None
+            stack.pop()
+            if not stack:
+                return index + 1
+    return None
+
+
+def _malformed_sequence_boundary(value: str, start: int) -> int:
+    boundary = len(value)
+    newline = re.search(r"\r?\n", value[start:])
+    if newline is None:
+        return boundary
+    boundary = start + newline.start()
+    next_line = start + newline.end()
+    while next_line < len(value) and value[next_line] in {" ", "\t"}:
+        following = re.search(r"\r?\n", value[next_line:])
+        if following is None:
+            return len(value)
+        boundary = next_line + following.start()
+        next_line += following.end()
+    return boundary
+
+
+def _redact_authorization_sequences(value: str) -> str:
+    output: list[str] = []
+    cursor = 0
+    while match := _AUTH_SEQUENCE_START.search(value, cursor):
+        output.append(value[cursor : match.start()])
+        if not _is_authorization_key(match.group("key")):
+            output.append(value[match.start() : match.end()])
+            cursor = match.end()
+            continue
+        end = _sequence_end(value, match.end() - 1)
+        if end is None:
+            end = _malformed_sequence_boundary(value, match.end() - 1)
+        key = match.group("key")
+        quote_character = '"' if '"' in key else "'"
+        output.append(
+            f"{key}{match.group('separator')}{quote_character}{REDACTED}{quote_character}"
+        )
+        cursor = end
+    output.append(value[cursor:])
+    return "".join(output)
 
 
 def _redact_authorization_header(match: re.Match[str]) -> str:
@@ -181,6 +274,7 @@ class Redactor:
             result = result.replace(variant, REDACTED)
         result = _PERCENT_TOKEN.sub(self._encoded, result)
         result = _HEX_TOKEN.sub(self._hex, result)
+        result = _redact_authorization_sequences(result)
         result = _JSON_FIELD.sub(_redact_json_authorization, result)
         result = _ESCAPED_JSON_FIELD.sub(_redact_escaped_json_authorization, result)
         result = _QUOTED_AUTH_DOUBLE.sub(_redact_quoted_authorization, result)

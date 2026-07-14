@@ -65,6 +65,10 @@ at most two passes, covering single and double encoding without generating an
 unbounded transform set. Standard and URL-safe base64 (padded or unpadded) and
 mixed-case hexadecimal forms are also checked. Configuration URL authority,
 query-key, and fragment validation applies the same two-pass ceiling.
+Textual JSON/Python representations of authorization sequences are scanned to
+a maximum nesting depth of 16 and 65,536 characters. Complete list/tuple values
+become one quoted redaction marker; malformed or over-limit values fail closed
+at a non-continuation line boundary so unrelated following records survive.
 
 Redaction is defense in depth, not permission to collect or persist sensitive
 fields. If safe output cannot be proven, the output boundary must reject it.
