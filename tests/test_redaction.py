@@ -45,6 +45,33 @@ def test_structured_redaction_preserves_shape_and_non_strings() -> None:
     }
 
 
+def test_authorization_redacts_scheme_and_complete_credential() -> None:
+    rendered = Redactor().text(
+        "safe-before Authorization: Basic c3ludGhldGljOnNlY3JldA== safe-middle; "
+        "Authorization=Bearer synthetic.header.payload, safe-after"
+    )
+    assert rendered == (
+        f"safe-before Authorization: {REDACTED} safe-middle; Authorization={REDACTED}, safe-after"
+    )
+    assert "Basic" not in rendered
+    assert "Bearer" not in rendered
+    assert "c3ludGhldGljOnNlY3JldA==" not in rendered
+    assert "synthetic.header.payload" not in rendered
+
+
+def test_quoted_assignments_redact_entire_multiword_value() -> None:
+    rendered = Redactor().text(
+        'safe-before password="synthetic double secret" safe-middle; '
+        "secret: 'synthetic single secret' safe-after"
+    )
+    assert rendered == (
+        f"safe-before password={REDACTED} safe-middle; secret: {REDACTED} safe-after"
+    )
+    assert "synthetic" not in rendered
+    assert "double secret" not in rendered
+    assert "single secret" not in rendered
+
+
 def test_exception_keeps_only_type_and_redacted_message() -> None:
     rendered = Redactor(["synthetic-value"]).exception(RuntimeError("token=synthetic-value"))
     assert rendered == f"RuntimeError: token={REDACTED}"

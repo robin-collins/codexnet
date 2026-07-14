@@ -13,10 +13,13 @@ _SENSITIVE_KEY = re.compile(
     r"(?:password|passphrase|token|api[_-]?key|community|authorization|cookie|secret|private[_-]?key)",
     re.IGNORECASE,
 )
-_AUTH = re.compile(r"(?i)\b(authorization\s*[:=]\s*)([^\s,;]+)")
+_AUTH = re.compile(
+    r"(?i)\b(authorization\s*[:=]\s*)"
+    r"(?:(?:basic|bearer)\s+)?(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+)
 _ASSIGNMENT = re.compile(
-    r"(?i)\b(password|passphrase|token|api[_-]?key|community|cookie|client_secret)"
-    r"(\s*[:=]\s*)([^\s,;]+)"
+    r"(?i)\b(password|passphrase|token|api[_-]?key|community|cookie|client_secret|secret)"
+    r"(\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
 )
 _URI_USERINFO = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s/:@]+:)([^\s/@]+)(@)", re.IGNORECASE)
 
