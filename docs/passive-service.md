@@ -10,6 +10,14 @@ DHCP payloads. The existing bounded pipeline parses them and persists structured
 Unsupported traffic is discarded. Service shutdown stops capture and gives the pipeline 20 seconds
 to drain; systemd allows 30 seconds before enforcing termination.
 
+Every 60 seconds the same process runs `/usr/sbin/ip -j neigh show dev <interface>` directly without
+a shell. The read-only command is bounded to five seconds, 1 MiB of output, and 4096 records; malformed
+records are isolated. `AF_NETLINK` is allowed solely for this kernel metadata read. Results pass through
+T304 normalization and its bounded tracker—no ARP probe or sweep is issued. The same maintenance pass
+emits explicit mDNS and neighbor expiry observations. LLDP/CDP facts carry a persisted `valid_until`
+timestamp derived from their advertised TTL, so report/topology consumers must not treat them as active
+after that time even if the network is silent or the service restarts.
+
 ## Install and verification
 
 Install the application and dedicated virtual environment under `/opt/field-discovery` first. Review

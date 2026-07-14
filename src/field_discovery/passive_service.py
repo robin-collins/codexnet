@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import logging
 import signal
 import socket
 import struct
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -18,7 +21,7 @@ from field_discovery.dhcp import DhcpParser
 from field_discovery.link_layer import parse_cdp, parse_lldp
 from field_discovery.logging import configure_logging
 from field_discovery.mdns import MDNSParser
-from field_discovery.neighbor import ArpParser
+from field_discovery.neighbor import ArpParser, NeighborTracker, parse_kernel_neighbor
 from field_discovery.passive import PassiveEventPipeline, PassiveObservation
 from field_discovery.repository import Repository
 
@@ -31,6 +34,26 @@ ETH_P_LLDP = 0x88CC
 MAX_CAPTURE_BYTES = 9_216
 CDP_DESTINATION = b"\x01\x00\x0c\xcc\xcc\xcc"
 CDP_SNAP = b"\xaa\xaa\x03\x00\x00\x0c\x20\x00"
+KERNEL_NEIGHBOR_COMMAND = ("/usr/sbin/ip", "-j", "neigh", "show", "dev")
+KERNEL_POLL_INTERVAL_SECONDS = 60.0
+KERNEL_COMMAND_TIMEOUT_SECONDS = 5.0
+MAX_KERNEL_OUTPUT_BYTES = 1_048_576
+MAX_KERNEL_RECORDS = 4_096
+
+CommandRunner = Callable[[Sequence[str], float, int], Awaitable[bytes]]
+
+
+class KernelNeighborError(RuntimeError):
+    """A bounded kernel-neighbor read could not be completed safely."""
+
+
+@dataclass(frozen=True)
+class PassiveRuntime:
+    """Pipeline and stateful parsers shared with periodic maintenance."""
+
+    pipeline: PassiveEventPipeline
+    mdns: MDNSParser
+    neighbors: NeighborTracker
 
 
 class FrameSource(Protocol):
@@ -120,13 +143,22 @@ def build_pipeline(
     sink: Callable[[PassiveObservation], Awaitable[None]],
 ) -> PassiveEventPipeline:
     """Create bounded production parser registrations without opening capture."""
-    return PassiveEventPipeline(
+    return build_runtime(sink).pipeline
+
+
+def build_runtime(
+    sink: Callable[[PassiveObservation], Awaitable[None]],
+) -> PassiveRuntime:
+    """Create one runtime whose capture and maintenance paths share bounded state."""
+    mdns = MDNSParser()
+    neighbors = NeighborTracker()
+    pipeline = PassiveEventPipeline(
         parsers={
             "lldp": (parse_lldp,),
             "cdp": (parse_cdp,),
-            "mdns": (MDNSParser(),),
+            "mdns": (mdns,),
             "dhcp": (DhcpParser(),),
-            "arp": (ArpParser(),),
+            "arp": (ArpParser(neighbors),),
         },
         sink=sink,
         queue_size=256,
@@ -134,6 +166,148 @@ def build_pipeline(
         max_frame_bytes=MAX_CAPTURE_BYTES,
         dedupe_capacity=4_096,
     )
+    return PassiveRuntime(pipeline, mdns, neighbors)
+
+
+async def _run_bounded_command(
+    command: Sequence[str], timeout: float, max_output_bytes: int
+) -> bytes:
+    """Execute an argument vector without a shell and cap time and stdout memory."""
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout = process.stdout
+    assert stdout is not None
+
+    async def read_output() -> bytes:
+        output = bytearray()
+        while True:
+            chunk = await stdout.read(min(65_536, max_output_bytes + 1 - len(output)))
+            if not chunk:
+                return bytes(output)
+            output.extend(chunk)
+            if len(output) > max_output_bytes:
+                raise KernelNeighborError("kernel neighbor output exceeds its size limit")
+
+    async def terminate_and_reap() -> None:
+        if (
+            process.returncode is None
+        ):  # pragma: no branch - SIGCHLD delivery is event-loop dependent
+            process.kill()
+        # A killed child may leave a bounded kernel pipe buffer behind. Drain
+        # without accumulating it so Process.wait() cannot deadlock on PIPE.
+        while await stdout.read(65_536):
+            pass
+        await process.wait()
+
+    try:
+        output = await asyncio.wait_for(read_output(), timeout=timeout)
+        return_code = await asyncio.wait_for(process.wait(), timeout=timeout)
+    except TimeoutError as exc:
+        await terminate_and_reap()
+        raise KernelNeighborError("kernel neighbor command timed out") from exc
+    except BaseException:
+        await terminate_and_reap()
+        raise
+    if return_code != 0:
+        raise KernelNeighborError("kernel neighbor command failed")
+    return output
+
+
+async def poll_kernel_neighbors(
+    interface: str,
+    tracker: NeighborTracker,
+    *,
+    observed_at: datetime,
+    runner: CommandRunner = _run_bounded_command,
+    timeout: float = KERNEL_COMMAND_TIMEOUT_SECONDS,
+    max_output_bytes: int = MAX_KERNEL_OUTPUT_BYTES,
+) -> tuple[PassiveObservation, ...]:
+    """Read and normalize bounded ``ip -j neigh`` metadata without probing peers."""
+    raw = await runner((*KERNEL_NEIGHBOR_COMMAND, interface), timeout, max_output_bytes)
+    if len(raw) > max_output_bytes:
+        raise KernelNeighborError("kernel neighbor output exceeds its size limit")
+    try:
+        document = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise KernelNeighborError("kernel neighbor output is not valid JSON") from exc
+    if not isinstance(document, list) or len(document) > MAX_KERNEL_RECORDS:
+        raise KernelNeighborError("kernel neighbor output has an invalid record set")
+    observations: list[PassiveObservation] = []
+    for record in document:
+        if not isinstance(record, dict):
+            continue
+        try:
+            evidence = parse_kernel_neighbor(
+                record, observed_at=observed_at, selected_interface=interface
+            )
+        except ValueError:
+            continue
+        if evidence is not None:
+            observations.extend(tracker.observe(evidence))
+    return tuple(observations)
+
+
+async def maintenance_once(
+    *,
+    interface: str,
+    runtime: PassiveRuntime,
+    sink: Callable[[PassiveObservation], Awaitable[None]],
+    observed_at: datetime,
+    runner: CommandRunner = _run_bounded_command,
+    logger: logging.Logger | None = None,
+) -> int:
+    """Poll kernel metadata and expire caches; each failure remains isolated."""
+    actual_logger = logger or logging.getLogger(__name__)
+    observations: list[PassiveObservation] = []
+    try:
+        observations.extend(
+            await poll_kernel_neighbors(
+                interface, runtime.neighbors, observed_at=observed_at, runner=runner
+            )
+        )
+    except (KernelNeighborError, OSError, ValueError):
+        actual_logger.warning("kernel_neighbor_poll_failed")
+    observations.extend(runtime.mdns.expire(observed_at))
+    observations.extend(runtime.neighbors.expire(observed_at))
+    emitted = 0
+    for observation in observations:
+        try:
+            await sink(observation)
+        except Exception:
+            actual_logger.warning("passive_maintenance_sink_failed")
+            continue
+        emitted += 1
+    return emitted
+
+
+async def maintenance_loop(
+    stop_event: asyncio.Event,
+    *,
+    interface: str,
+    runtime: PassiveRuntime,
+    sink: Callable[[PassiveObservation], Awaitable[None]],
+    runner: CommandRunner = _run_bounded_command,
+    interval_seconds: float = KERNEL_POLL_INTERVAL_SECONDS,
+) -> int:
+    """Run bounded passive maintenance until shutdown, without active probes."""
+    total = 0
+    while not stop_event.is_set():
+        total += await maintenance_once(
+            interface=interface,
+            runtime=runtime,
+            sink=sink,
+            observed_at=datetime.now(UTC),
+            runner=runner,
+        )
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        except TimeoutError:
+            continue
+    return total
 
 
 async def observe(
@@ -196,6 +370,7 @@ async def run_service(
     configuration: Mapping[str, Any],
     *,
     source_factory: Callable[[str], FrameSource] = PacketSocketSource,
+    neighbor_runner: CommandRunner = _run_bounded_command,
     stop_event: asyncio.Event | None = None,
 ) -> None:
     """Run the observer with repository ownership and signal-aware shutdown."""
@@ -215,13 +390,29 @@ async def run_service(
         for selected_signal in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(selected_signal, stopping.set)
     try:
-        pipeline = build_pipeline(_repository_sink(repository, deployment_id))
-        await observe(source_factory(interface), pipeline, stopping, interface=interface)
+        sink = _repository_sink(repository, deployment_id)
+        runtime = build_runtime(sink)
+        source = source_factory(interface)
+        maintenance = asyncio.create_task(
+            maintenance_loop(
+                stopping,
+                interface=interface,
+                runtime=runtime,
+                sink=sink,
+                runner=neighbor_runner,
+            )
+        )
+        maintenance_count = 0
+        try:
+            await observe(source, runtime.pipeline, stopping, interface=interface)
+        finally:
+            stopping.set()
+            maintenance_count = await maintenance
         repository.finish_run(
             run_id,
             "succeeded",
             datetime.now(UTC).isoformat(),
-            pipeline.metrics().emitted_observations,
+            runtime.pipeline.metrics().emitted_observations + maintenance_count,
         )
     except BaseException:
         repository.finish_run(run_id, "failed", datetime.now(UTC).isoformat(), 0)

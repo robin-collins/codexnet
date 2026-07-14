@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import shutil
@@ -16,7 +17,8 @@ from typing import Any, cast
 import pytest
 
 from field_discovery.config import Configuration, ConfigurationError
-from field_discovery.passive import PassiveObservation
+from field_discovery.neighbor import NeighborTracker
+from field_discovery.passive import PassiveFrame, PassiveObservation
 from field_discovery.passive_service import (
     CDP_DESTINATION,
     CDP_SNAP,
@@ -25,12 +27,18 @@ from field_discovery.passive_service import (
     ETH_P_IP,
     ETH_P_LLDP,
     MAX_CAPTURE_BYTES,
+    KernelNeighborError,
     PacketSocketSource,
     _repository_sink,
+    _run_bounded_command,
     build_pipeline,
+    build_runtime,
     decode_ethernet,
     main,
+    maintenance_loop,
+    maintenance_once,
     observe,
+    poll_kernel_neighbors,
     run_service,
 )
 from field_discovery.repository import Repository
@@ -65,6 +73,17 @@ def struct_pack(format_string: str, *values: int) -> bytes:
     import struct
 
     return struct.pack(format_string, *values)
+
+
+def _dns_name(value: str) -> bytes:
+    return b"".join(bytes((len(label),)) + label.encode() for label in value.split(".")) + b"\0"
+
+
+def _mdns_address(ttl: int = 1) -> bytes:
+    name = _dns_name("silent.local")
+    address = ipaddress.IPv4Address("192.0.2.88").packed
+    record = name + struct_pack("!HHIH", 1, 0x8001, ttl, len(address)) + address
+    return struct_pack("!HHHHHH", 0, 0x8400, 0, 1, 0, 0) + record
 
 
 def test_ethernet_decoder_extracts_only_supported_passive_payloads() -> None:
@@ -327,6 +346,264 @@ def test_run_service_registers_signals_when_event_not_injected(
     asyncio.run(scenario())
 
 
+def test_bounded_neighbor_command_success_failure_timeout_oversize_and_cancel() -> None:
+    async def scenario() -> None:
+        printf = shutil.which("printf")
+        false = shutil.which("false")
+        sleep = shutil.which("sleep")
+        yes = shutil.which("yes")
+        assert all((printf, false, sleep, yes))
+        assert await _run_bounded_command((str(printf), "[]"), 1, 16) == b"[]"
+        with pytest.raises(KernelNeighborError, match="size"):
+            await _run_bounded_command((str(printf), "finished-output"), 1, 1)
+        with pytest.raises(KernelNeighborError, match="failed"):
+            await _run_bounded_command((str(false),), 1, 16)
+        with pytest.raises(KernelNeighborError, match="timed out"):
+            await _run_bounded_command((str(sleep), "1"), 0.01, 16)
+        with pytest.raises(KernelNeighborError, match="size"):
+            await _run_bounded_command((str(yes),), 1, 16)
+
+        pending = asyncio.create_task(_run_bounded_command((str(sleep), "1"), 2, 16))
+        await asyncio.sleep(0.01)
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+
+    asyncio.run(scenario())
+
+
+def test_kernel_neighbor_poll_is_bounded_normalized_and_no_shell() -> None:
+    async def scenario() -> None:
+        calls: list[tuple[tuple[str, ...], float, int]] = []
+        records = [
+            {
+                "dst": "192.0.2.10",
+                "dev": "eth-test",
+                "lladdr": "02:00:00:00:00:10",
+                "state": ["REACHABLE"],
+            },
+            {"dst": "192.0.2.11", "dev": "other", "state": "STALE"},
+            {"bad": "record"},
+            "not-a-record",
+        ]
+
+        async def runner(command: Any, timeout: float, maximum: int) -> bytes:
+            calls.append((tuple(command), timeout, maximum))
+            return json.dumps(records).encode()
+
+        tracker = NeighborTracker()
+        output = await poll_kernel_neighbors(
+            "eth-test", tracker, observed_at=NOW, runner=runner, timeout=2, max_output_bytes=4096
+        )
+        assert [item.kind for item in output] == ["neighbor_observation"]
+        assert output[0].fields["address"] == "192.0.2.10"
+        assert calls == [
+            (
+                ("/usr/sbin/ip", "-j", "neigh", "show", "dev", "eth-test"),
+                2,
+                4096,
+            )
+        ]
+        assert "sh" not in calls[0][0] and "shell" not in calls[0][0]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"not-json",
+        b"{}",
+        json.dumps([{}] * 4097).encode(),
+    ],
+)
+def test_kernel_neighbor_poll_rejects_malformed_or_excessive_sets(payload: bytes) -> None:
+    async def runner(_command: Any, _timeout: float, _maximum: int) -> bytes:
+        return payload
+
+    async def scenario() -> None:
+        with pytest.raises(KernelNeighborError):
+            await poll_kernel_neighbors(
+                "eth-test", NeighborTracker(), observed_at=NOW, runner=runner
+            )
+
+    asyncio.run(scenario())
+
+
+def test_kernel_neighbor_poll_defends_against_injected_runner_oversize() -> None:
+    async def runner(_command: Any, _timeout: float, maximum: int) -> bytes:
+        return b"x" * (maximum + 1)
+
+    async def scenario() -> None:
+        with pytest.raises(KernelNeighborError, match="size"):
+            await poll_kernel_neighbors(
+                "eth-test",
+                NeighborTracker(),
+                observed_at=NOW,
+                runner=runner,
+                max_output_bytes=8,
+            )
+
+    asyncio.run(scenario())
+
+
+def test_maintenance_expires_silent_state_after_24_hours_and_isolates_failures() -> None:
+    async def scenario() -> None:
+        persisted: list[PassiveObservation] = []
+
+        async def sink(item: PassiveObservation) -> None:
+            persisted.append(item)
+
+        runtime = build_runtime(sink)
+        tuple(runtime.mdns(PassiveFrame("mdns", _mdns_address(), NOW, "eth-test")))
+        evidence = {
+            "dst": "192.0.2.20",
+            "dev": "eth-test",
+            "lladdr": "02:00:00:00:00:20",
+            "state": "REACHABLE",
+        }
+
+        async def initial_runner(_command: Any, _timeout: float, _maximum: int) -> bytes:
+            return json.dumps([evidence]).encode()
+
+        assert (
+            await maintenance_once(
+                interface="eth-test",
+                runtime=runtime,
+                sink=sink,
+                observed_at=NOW,
+                runner=initial_runner,
+            )
+            == 1
+        )
+
+        async def silent_runner(_command: Any, _timeout: float, _maximum: int) -> bytes:
+            return b"[]"
+
+        count = await maintenance_once(
+            interface="eth-test",
+            runtime=runtime,
+            sink=sink,
+            observed_at=NOW + timedelta(hours=24),
+            runner=silent_runner,
+        )
+        assert count == 2
+        assert [item.kind for item in persisted] == [
+            "neighbor_observation",
+            "mdns_address",
+            "neighbor_expired",
+        ]
+        assert persisted[1].fields["action"] == "expired"
+
+        async def failed_runner(_command: Any, _timeout: float, _maximum: int) -> bytes:
+            raise KernelNeighborError("synthetic")
+
+        assert (
+            await maintenance_once(
+                interface="eth-test",
+                runtime=runtime,
+                sink=sink,
+                observed_at=NOW + timedelta(hours=25),
+                runner=failed_runner,
+            )
+            == 0
+        )
+
+        runtime = build_runtime(sink)
+        tuple(runtime.mdns(PassiveFrame("mdns", _mdns_address(), NOW, "eth-test")))
+
+        async def failing_sink(_item: PassiveObservation) -> None:
+            raise RuntimeError("synthetic sink failure")
+
+        assert (
+            await maintenance_once(
+                interface="eth-test",
+                runtime=runtime,
+                sink=failing_sink,
+                observed_at=NOW + timedelta(hours=24),
+                runner=silent_runner,
+            )
+            == 0
+        )
+
+    asyncio.run(scenario())
+
+
+def test_maintenance_loop_polls_on_interval_and_stops_cleanly() -> None:
+    async def scenario() -> None:
+        stop = asyncio.Event()
+        calls = 0
+
+        async def runner(_command: Any, _timeout: float, _maximum: int) -> bytes:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                stop.set()
+            return b"[]"
+
+        async def sink(_item: PassiveObservation) -> None:
+            return None
+
+        total = await maintenance_loop(
+            stop,
+            interface="eth-test",
+            runtime=build_runtime(sink),
+            sink=sink,
+            runner=runner,
+            interval_seconds=0.001,
+        )
+        assert calls == 2 and total == 0
+
+    asyncio.run(scenario())
+
+
+def test_service_runtime_polls_and_restart_preserves_expiring_history(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        data_root = tmp_path / "restart"
+        data_root.mkdir()
+        evidence = {
+            "dst": "192.0.2.30",
+            "dev": "eth-test",
+            "lladdr": "02:00:00:00:00:30",
+            "state": "STALE",
+        }
+
+        for payload in (json.dumps([evidence]).encode(), b"[]"):
+            stop = asyncio.Event()
+
+            async def runner(
+                _command: Any,
+                _timeout: float,
+                _maximum: int,
+                data: bytes = payload,
+                event: asyncio.Event = stop,
+            ) -> bytes:
+                event.set()
+                return data
+
+            source = _ReplaySource([], stop)
+            await run_service(
+                _configuration(data_root),
+                source_factory=lambda _interface, actual=source: actual,
+                neighbor_runner=runner,
+                stop_event=stop,
+            )
+
+        repository = Repository.open(data_root / "discovery.db", data_root=data_root)
+        rows = repository.connection.execute(
+            "SELECT fact_value_json FROM observations WHERE fact_type = 'neighbor_observation'"
+        ).fetchall()
+        runs = repository.connection.execute(
+            "SELECT status FROM collector_runs WHERE collector = 'passive' ORDER BY id"
+        ).fetchall()
+        repository.close()
+        assert len(rows) == 1
+        assert "valid_until" in json.loads(rows[0][0])
+        assert [row[0] for row in runs] == ["succeeded", "succeeded"]
+
+    asyncio.run(scenario())
+
+
 def test_main_reports_configuration_failure_and_clean_stop(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -358,7 +635,7 @@ def test_systemd_unit_is_narrowly_privileged_and_resource_bounded(tmp_path: Path
     assert "TasksMax=32" in unit and "LimitNOFILE=256" in unit
     assert "ProtectSystem=strict" in unit and "ProtectHome=true" in unit
     assert "ReadWritePaths=/var/lib/field-discovery" in unit
-    assert "RestrictAddressFamilies=AF_UNIX AF_PACKET" in unit
+    assert "RestrictAddressFamilies=AF_UNIX AF_PACKET AF_NETLINK" in unit
     assert "IPAddressDeny=any" in unit
     assert "SystemCallFilter=~@mount @privileged @reboot @resources @swap" in unit
     assert "PrivateMounts=true" in unit and "RemoveIPC=true" in unit
