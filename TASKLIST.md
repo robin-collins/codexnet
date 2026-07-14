@@ -35,7 +35,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** baseline commands are documented and repeatable; the nmap cron and Scanopy state are captured without modification.
 - **Balance:** compare Scanopy and cron state again at every later stage gate.
 
-### [ ] T001 Establish repository quality tooling
+### [x] T001 Establish repository quality tooling
 
 - **Depends on:** none
 - **Deliver:** Python project metadata, `src/` layout, `tests/`, Ruff, mypy, pytest, coverage configuration, and pinned/locked runtime dependencies suitable for ARM64.

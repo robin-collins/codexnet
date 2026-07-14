@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codexnet-field-discovery"
+version = "0.1.0"
+description = "Offline-first network discovery and documentation appliance"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "Proprietary" }
+authors = [{ name = "Robin Collins" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "coverage[toml]==7.9.2",
+  "mypy==1.15.0",
+  "pytest==8.4.1",
+  "ruff==0.12.4",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+field_discovery = ["py.typed"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers --cov=field_discovery --cov-report=term-missing --cov-fail-under=100"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["field_discovery"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
