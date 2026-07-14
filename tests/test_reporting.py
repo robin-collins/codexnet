@@ -116,7 +116,7 @@ def test_report_model_is_deterministic_provenance_aware_and_snapshot_stable(
     payload = deterministic_json(first)
     assert payload == deterministic_json(second)
     assert hashlib.sha256(payload).hexdigest() == (
-        "1f4f2c4b38bdfdf55b64e02f2cb4f10c8041dc140a3760fcb013ab4c3e9aa6a6"
+        "6584853cbe237f7705708fa3df37f34f756cba2b453440f0ceda493078acf87e"
     )
 
 

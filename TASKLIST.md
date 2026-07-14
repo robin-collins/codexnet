@@ -285,7 +285,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** mocked Kerberos, LDAPS, expired credential, insufficient access, referral, paging, large group, and partial-directory tests pass.
 - **Balance:** plaintext LDAP requires explicit opt-in; deny/filter password, hash, ticket, secret, and attack-path attributes; no offensive collection dependencies.
 
-### [ ] T504 Build AD and UniFi report enrichment
+### [x] T504 Build AD and UniFi report enrichment
 
 - **Depends on:** T305, T501, T503
 - **Deliver:** UniFi-enriched topology and AD domain/site/subnet/DC/trust diagrams with coverage and permissions notes.

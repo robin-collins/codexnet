@@ -18,6 +18,7 @@ from xml.etree import ElementTree as ET
 
 from field_discovery.artifacts import safe_filename
 from field_discovery.infrastructure_reporting import build_infrastructure_model
+from field_discovery.platform_reporting import build_platform_report_model
 from field_discovery.redaction import Redactor
 from field_discovery.repository import Repository
 
@@ -203,6 +204,7 @@ def build_report_model(
 
     conflicts = _conflicts(repository, deployment_id)
     infrastructure = build_infrastructure_model(repository, deployment_id, generated_at=generated)
+    platforms = build_platform_report_model(repository, deployment_id, generated_at=generated)
     limitations: list[str] = [
         "Inventory contains observations visible to configured collectors only.",
         "Absence of an observed service or device does not prove absence from the network.",
@@ -244,6 +246,7 @@ def build_report_model(
         "devices": devices,
         "conflicts": conflicts,
         "infrastructure": infrastructure,
+        "platforms": platforms,
         "limitations": limitations,
     }
     return cast(dict[str, Any], repository.redactor.value(model))
@@ -401,6 +404,89 @@ def _document_xml(model: dict[str, Any]) -> bytes:
         body.append(_paragraph(json.dumps(issue, sort_keys=True, ensure_ascii=False)))
     for limitation in infrastructure["limitations"]:
         body.append(_paragraph(f"• {limitation}"))
+    platforms = model["platforms"]
+    for platform_key, title in (
+        ("unifi", "UniFi topology and inventory"),
+        ("active_directory", "Active Directory structure and trusts"),
+    ):
+        platform = platforms[platform_key]
+        body.append(_paragraph(title, "Heading1"))
+        diagram = platform["diagram"]
+        body.append(_paragraph("Diagram nodes", "Heading2"))
+        body.append(
+            _table(
+                ("Type", "Label", "Opaque ID", "Source", "Observed", "Age (days)"),
+                [
+                    (
+                        item["kind"],
+                        item["label"],
+                        item["id"],
+                        item["source"],
+                        item["observed_at"],
+                        item["age_days"],
+                    )
+                    for item in diagram["nodes"]
+                ],
+            )
+        )
+        body.append(_paragraph("Diagram relationships", "Heading2"))
+        body.append(
+            _table(
+                ("From", "Relationship", "To", "Source", "Observed"),
+                [
+                    (
+                        item["from"],
+                        item["kind"],
+                        item["to"],
+                        item["source"],
+                        item["observed_at"],
+                    )
+                    for item in diagram["edges"]
+                ],
+            )
+        )
+        body.append(_paragraph("Coverage and permissions", "Heading2"))
+        if platform["coverage_notes"]:
+            for note in platform["coverage_notes"]:
+                body.append(_paragraph(json.dumps(note, sort_keys=True, ensure_ascii=False)))
+        else:
+            body.append(_paragraph("No collector permission or partial-coverage notes recorded."))
+        if platform_key == "unifi":
+            body.append(_paragraph("UniFi sites", "Heading2"))
+            body.append(
+                _table(
+                    ("Controller", "Site", "Name", "Source", "Observed", "Entities"),
+                    [
+                        (
+                            site["controller"],
+                            site["site"],
+                            site["name"],
+                            site["source"],
+                            site["observed_at"],
+                            len(site["entities"]),
+                        )
+                        for site in platform["sites"]
+                    ],
+                )
+            )
+        else:
+            body.append(_paragraph("AD domains and forests", "Heading2"))
+            body.append(
+                _table(
+                    ("Domain", "Forest", "Functional level", "Source", "Observed", "Entities"),
+                    [
+                        (
+                            domain["domain"],
+                            domain["forest"],
+                            domain["functional_level"],
+                            domain["source"],
+                            domain["observed_at"],
+                            len(domain["entities"]),
+                        )
+                        for domain in platform["domains"]
+                    ],
+                )
+            )
     body.append(_paragraph("Collection coverage", "Heading1"))
     body.append(
         _table(
