@@ -56,7 +56,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** valid examples load; unknown keys, unsafe target ranges, inline secrets, invalid intervals, and insecure protocol choices fail with actionable errors.
 - **Balance:** secrets never appear in CLI arguments, serialized config, SQLite, logs, exceptions, or test snapshots.
 
-### [ ] G0 Stage 0 gate
+### [x] G0 Stage 0 gate
 
 - **Depends on:** T000, T001, T002, T003
 - **Verify:** project checks pass; architecture traces to the specification; baseline proves no appliance services were changed; threat-model review has no unresolved critical issue.
