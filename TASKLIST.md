@@ -42,7 +42,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** clean-environment install succeeds; format, lint, type-check, and empty smoke test commands pass.
 - **Balance:** dependencies must be justified, version constrained, and checked for ARM64 availability before adoption.
 
-### [ ] T002 Write architecture and threat model
+### [x] T002 Write architecture and threat model
 
 - **Depends on:** T000
 - **Deliver:** `docs/architecture.md` and `docs/threat-model.md` covering trust boundaries, privilege separation, data flows, credential paths, active-scan controls, retention, and failure isolation.
