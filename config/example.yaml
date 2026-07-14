@@ -62,6 +62,12 @@ collectors:
     allow_plaintext_ldap: false
     domain: example.invalid
     base_dn: DC=example,DC=invalid
+    server_name: dc1.example.invalid
+    page_size: 500
+    max_entries: 10000
+    # Exact groups whose membership is required for documentation; empty collects none.
+    documentation_groups:
+      - Documentation
     credential_ref:
       provider: appliance_env
       key: AD_SITE_PROFILE

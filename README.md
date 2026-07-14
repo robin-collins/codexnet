@@ -144,3 +144,15 @@ field-discovery --config /etc/field-discovery/config.yaml discover ad \
 ```
 
 See [docs/ad-detection.md](docs/ad-detection.md) for the evidence and safety model.
+
+Credential-gated AD documentation collection prefers Kerberos or verified LDAPS and queries only
+fixed inventory attributes. It requires an approved target and the configured opaque credential
+reference; documentation-group membership is opt-in by exact group name:
+
+```bash
+field-discovery --config /etc/field-discovery/config.yaml collect ad \
+  --target 192.168.50.10 --server-name dc1.example.invalid
+```
+
+See [docs/ad-collection.md](docs/ad-collection.md) for credential profiles, paging, partial
+coverage, and the prohibited-data boundary.

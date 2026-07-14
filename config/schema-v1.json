@@ -71,6 +71,13 @@
             "allow_plaintext_ldap": {"type": "boolean", "default": false},
             "domain": {"type": ["string", "null"]},
             "base_dn": {"type": ["string", "null"]},
+            "server_name": {"type": ["string", "null"]},
+            "page_size": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 500},
+            "max_entries": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 10000},
+            "documentation_groups": {
+              "type": "array", "maxItems": 128,
+              "items": {"type": "string", "minLength": 1, "maxLength": 256}, "default": []
+            },
             "credential_ref": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/secretRef"}]}
           }
         },

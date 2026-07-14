@@ -278,7 +278,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** fixtures cover AD/non-AD DNS, multiple domains/DCs, unreachable targets, malformed records, and site-specific SRV results.
 - **Balance:** detection does not invoke offensive Impacket/BloodHound functions or attempt usernames/passwords.
 
-### [ ] T503 Implement credential-gated AD collection
+### [x] T503 Implement credential-gated AD collection
 
 - **Depends on:** T105, T502
 - **Deliver:** Kerberos/LDAPS-preferred LDAP client for forest/domain, sites/subnets, DCs, computers, documentation groups/memberships, OUs, trusts, and relevant roles; `collect ad`.

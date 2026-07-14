@@ -16,6 +16,7 @@ import yaml
 MAX_CONFIG_BYTES = 1_048_576
 _REFERENCE_KEY = re.compile(r"^[A-Z][A-Z0-9_]{2,127}$")
 _NAME = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+_HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 _INLINE_SECRET_KEYS = {
     "password",
     "passwd",
@@ -83,6 +84,10 @@ _DEFAULTS: dict[str, Any] = {
             "allow_plaintext_ldap": False,
             "domain": None,
             "base_dn": None,
+            "server_name": None,
+            "page_size": 500,
+            "max_entries": 10000,
+            "documentation_groups": [],
             "credential_ref": None,
         },
         "ssh": {
@@ -127,6 +132,10 @@ _ALLOWED: dict[str, set[str]] = {
         "allow_plaintext_ldap",
         "domain",
         "base_dn",
+        "server_name",
+        "page_size",
+        "max_entries",
+        "documentation_groups",
         "credential_ref",
     },
     "collectors.ssh": {"enabled", "host_key_policy", "credential_ref"},
@@ -395,6 +404,27 @@ def _validate_protocols(collectors: dict[str, Any]) -> None:
         isinstance(ad[field], str) and ad[field] for field in ("domain", "base_dn")
     ):
         raise ConfigurationError("enabled AD collection requires domain and base_dn")
+    if ad["server_name"] is not None and (
+        not isinstance(ad["server_name"], str) or not ad["server_name"]
+    ):
+        raise ConfigurationError("collectors.ad.server_name must be null or a hostname")
+    if isinstance(ad["server_name"], str):
+        labels = ad["server_name"].rstrip(".").split(".")
+        if len(labels) < 2 or any(not _HOST_LABEL.fullmatch(label) for label in labels):
+            raise ConfigurationError(
+                "collectors.ad.server_name must be null or a qualified hostname"
+            )
+    _integer(ad["page_size"], "collectors.ad.page_size", 1, 1000)
+    _integer(ad["max_entries"], "collectors.ad.max_entries", 1, 100000)
+    groups = ad["documentation_groups"]
+    if (
+        not isinstance(groups, list)
+        or len(groups) > 128
+        or any(not isinstance(name, str) or not name or len(name) > 256 for name in groups)
+    ):
+        raise ConfigurationError(
+            "collectors.ad.documentation_groups must contain at most 128 bounded names"
+        )
     ssh = collectors["ssh"]
     if ssh["host_key_policy"] not in {"strict", "accept-new"}:
         raise ConfigurationError("collectors.ssh.host_key_policy must be strict or accept-new")

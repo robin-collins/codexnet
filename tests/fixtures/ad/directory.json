@@ -1,0 +1,71 @@
+{
+  "root": {
+    "defaultNamingContext": ["DC=example,DC=invalid"],
+    "rootDomainNamingContext": ["DC=example,DC=invalid"],
+    "configurationNamingContext": ["CN=Configuration,DC=example,DC=invalid"],
+    "dnsHostName": ["dc1.example.invalid"]
+  },
+  "domain": {
+    "distinguishedName": ["DC=example,DC=invalid"],
+    "objectGUID": ["domain-guid"],
+    "name": ["example"],
+    "objectSid": ["S-1-5-21-fixture"],
+    "msDS-Behavior-Version": ["7"]
+  },
+  "domain_controller": {
+    "distinguishedName": ["CN=DC1,OU=Domain Controllers,DC=example,DC=invalid"],
+    "objectGUID": ["dc-guid"],
+    "sAMAccountName": ["DC1$"],
+    "dNSHostName": ["dc1.example.invalid"],
+    "operatingSystem": ["Fixture Server"],
+    "operatingSystemVersion": ["1.0"],
+    "userAccountControl": [8192],
+    "servicePrincipalName": ["DNS/dc1.example.invalid", "GC/dc1.example.invalid", "LDAP/dc1.example.invalid"]
+  },
+  "computer": {
+    "distinguishedName": ["CN=SERVER1,OU=Servers,DC=example,DC=invalid"],
+    "objectGUID": ["computer-guid"],
+    "sAMAccountName": ["SERVER1$"],
+    "dNSHostName": ["server1.example.invalid"],
+    "operatingSystem": ["Fixture OS"],
+    "operatingSystemVersion": ["2.0"],
+    "userAccountControl": [4096],
+    "servicePrincipalName": ["HTTP/server1.example.invalid"]
+  },
+  "organizational_unit": {
+    "distinguishedName": ["OU=Servers,DC=example,DC=invalid"],
+    "objectGUID": ["ou-guid"],
+    "name": ["Servers"],
+    "description": ["Synthetic OU"]
+  },
+  "trust": {
+    "distinguishedName": ["CN=other.invalid,CN=System,DC=example,DC=invalid"],
+    "objectGUID": ["trust-guid"],
+    "name": ["other.invalid"],
+    "trustDirection": [3],
+    "trustType": [2],
+    "trustAttributes": [8]
+  },
+  "site": {
+    "distinguishedName": ["CN=Site-A,CN=Sites,CN=Configuration,DC=example,DC=invalid"],
+    "objectGUID": ["site-guid"],
+    "name": ["Site-A"],
+    "description": ["Synthetic site"]
+  },
+  "subnet": {
+    "distinguishedName": ["CN=192.0.2.0/24,CN=Subnets,CN=Sites,CN=Configuration,DC=example,DC=invalid"],
+    "objectGUID": ["subnet-guid"],
+    "name": ["192.0.2.0/24"],
+    "siteObject": ["CN=Site-A,CN=Sites,CN=Configuration,DC=example,DC=invalid"],
+    "location": ["Synthetic"]
+  },
+  "group": {
+    "distinguishedName": ["CN=Documentation,OU=Groups,DC=example,DC=invalid"],
+    "objectGUID": ["group-guid"],
+    "sAMAccountName": ["Documentation"],
+    "displayName": ["Documentation Group"],
+    "description": ["Synthetic group"],
+    "groupType": [-2147483646],
+    "member;range=0-*": ["CN=Reader,OU=People,DC=example,DC=invalid"]
+  }
+}

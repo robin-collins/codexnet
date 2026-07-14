@@ -54,6 +54,14 @@ exceptions, reports, diagrams, backups, process arguments, or test snapshots.
 Enabled collectors must later fail without attempting authentication when a
 reference is absent or cannot be resolved. Rotation changes only the provider.
 
+The AD collector resolves its reference only for an explicit `collect ad` run.
+Its Kerberos provider value selects a principal plus the system credential
+cache; LDAPS/explicit plaintext LDAP provider values contain a bind username
+and password. See [ad-collection.md](ad-collection.md) for the exact bounded
+JSON shapes. `server_name` is required for TLS hostname validation,
+`page_size`/`max_entries` bound reads, and `documentation_groups` is an exact
+allowlist rather than a directory-wide group enumeration switch.
+
 ## Redaction boundary
 
 `field_discovery.redaction.Redactor` is the mandatory boundary for any log,

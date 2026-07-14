@@ -18,6 +18,11 @@ from typing import Any, NoReturn, cast
 from urllib.parse import urlsplit
 
 from field_discovery import __version__
+from field_discovery.ad_collection import (
+    ActiveDirectoryCollector,
+    Ldap3SessionFactory,
+    resolve_ad_credentials,
+)
 from field_discovery.ad_detection import (
     ADDetectionError,
     ADDetector,
@@ -116,6 +121,8 @@ def build_parser() -> argparse.ArgumentParser:
     unifi.add_argument("--controller", action="append")
     ad = _command_parser(collect_sub, "ad", "run Active Directory collection")
     ad.add_argument("--domain")
+    ad.add_argument("--target", required=True, help="explicit approved domain-controller IPv4")
+    ad.add_argument("--server-name", help="certificate/SPN hostname for the approved target")
     ssh = _command_parser(collect_sub, "ssh", "run network-device SSH collection")
     ssh.add_argument("--target", action="append", required=True)
     ssh.add_argument(
@@ -563,6 +570,109 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
         finally:
             if unifi_repository is not None:
                 unifi_repository.close()
+    if command == "collect ad":
+        settings = configuration.data["collectors"]["ad"]
+        reference = CredentialReference.from_mapping(settings["credential_ref"])
+        domain = arguments.domain or settings["domain"]
+        server_name = arguments.server_name or settings["server_name"]
+        base_dn = settings["base_dn"]
+        if reference is None:
+            _emit(
+                {
+                    "ok": False,
+                    "command": command,
+                    "message": "AD collection requires a configured credential reference.",
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.CONFIGURATION)
+        if not domain or not base_dn or not server_name:
+            _emit(
+                {
+                    "ok": False,
+                    "command": command,
+                    "message": "AD collection requires domain, base DN, and server name.",
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.CONFIGURATION)
+        paths = configuration.data["paths"]
+        ad_collection_repository: Repository | None = None
+        try:
+            ad_collection_repository = Repository.open(
+                Path(paths["database"]), data_root=Path(paths["data_root"])
+            )
+            timestamp = datetime.now(UTC)
+            deployment_id = ad_collection_repository.upsert_deployment(
+                "default", "Default deployment", timestamp.isoformat()
+            )
+            scheduler = configuration.data["scheduler"]
+            ad_collector = ActiveDirectoryCollector(
+                ad_collection_repository,
+                deployment_id,
+                Ldap3SessionFactory(),
+                lambda requested, transport: resolve_ad_credentials(
+                    requested, configuration.data["secret_providers"], transport
+                ),
+                domain=domain,
+                base_dn=base_dn,
+                transport=settings["transport"],
+                allow_plaintext_ldap=settings["allow_plaintext_ldap"],
+                server_name=server_name,
+                page_size=settings["page_size"],
+                max_entries=settings["max_entries"],
+                documentation_groups=settings["documentation_groups"],
+                timeout=scheduler["timeout_seconds"],
+            )
+            orchestrator = CollectorOrchestrator(
+                repository=ad_collection_repository,
+                deployment_id=deployment_id,
+                approved_ranges=configuration.data["active"]["approved_ranges"],
+                collectors={"ad": ad_collector},
+                concurrency=1,
+                timeout_seconds=scheduler["timeout_seconds"],
+                retries=scheduler["retries"],
+                interface_name=configuration.data["interface"]["name"],
+            )
+            ad_summary = asyncio.run(
+                orchestrator.run([CollectorRequest("ad", arguments.target, reference)])
+            )[0]
+            ok = ad_summary.status in {"succeeded", "partial"}
+            security_notice = (
+                "Plaintext LDAP was explicitly enabled; credentials and directory traffic "
+                "are not transport encrypted."
+                if settings["transport"] == "ldap"
+                else None
+            )
+            if security_notice:
+                logger.warning("ad_plaintext_ldap_explicitly_enabled", extra={"command": command})
+            _emit(
+                {
+                    "ok": ok,
+                    "command": command,
+                    "message": (
+                        f"AD collection {ad_summary.status}: {ad_summary.item_count} records, "
+                        f"{ad_summary.error_count} limitations."
+                    ),
+                    "status": ad_summary.status,
+                    "records": ad_summary.item_count,
+                    "limitations": ad_summary.error_count,
+                    "transport": settings["transport"],
+                    "security_notice": security_notice,
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.SUCCESS if ok else ExitCode.COLLECTOR)
+        except (CollectorError, RepositoryError, sqlite3.Error, OSError) as exc:
+            logger.error("ad_collection_failed", extra={"command": command, "reason": str(exc)})
+            _emit(
+                {"ok": False, "command": command, "message": f"AD collection failed: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.COLLECTOR)
+        finally:
+            if ad_collection_repository is not None:
+                ad_collection_repository.close()
     if command == "collect ssh":
         paths = configuration.data["paths"]
         settings = configuration.data["collectors"]["ssh"]

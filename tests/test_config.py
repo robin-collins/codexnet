@@ -220,6 +220,32 @@ def test_enabled_ad_requires_approved_domain_and_base_dn() -> None:
 
 
 @pytest.mark.parametrize(
+    ("path", "value", "message"),
+    [
+        ("collectors.ad.server_name", "", "server_name"),
+        ("collectors.ad.server_name", 3, "server_name"),
+        ("collectors.ad.server_name", "localhost", "qualified hostname"),
+        ("collectors.ad.server_name", "bad_name.example.invalid", "qualified hostname"),
+        ("collectors.ad.page_size", 0, "page_size"),
+        ("collectors.ad.page_size", 1001, "page_size"),
+        ("collectors.ad.max_entries", 0, "max_entries"),
+        ("collectors.ad.max_entries", 100001, "max_entries"),
+        ("collectors.ad.documentation_groups", "group", "documentation_groups"),
+        ("collectors.ad.documentation_groups", [""], "documentation_groups"),
+        ("collectors.ad.documentation_groups", ["x" * 257], "documentation_groups"),
+        (
+            "collectors.ad.documentation_groups",
+            [f"group-{index}" for index in range(129)],
+            "documentation_groups",
+        ),
+    ],
+)
+def test_ad_collection_bounds_are_validated(path: str, value: object, message: str) -> None:
+    with pytest.raises(ConfigurationError, match=message):
+        validate_config(set_path(example(), path, value))
+
+
+@pytest.mark.parametrize(
     ("mutate", "message"),
     [
         (

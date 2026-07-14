@@ -20,7 +20,12 @@ from field_discovery.ad_detection import (
     DetectionIssue,
     DomainControllerCandidate,
 )
-from field_discovery.collectors import CollectorResult
+from field_discovery.collectors import (
+    CollectorAuthenticationError,
+    CollectorContext,
+    CollectorIssue,
+    CollectorResult,
+)
 from field_discovery.repository import IntegrityResult, Repository, RepositoryError
 from field_discovery.subnet import SubnetDescription, SubnetResolutionError
 
@@ -107,7 +112,6 @@ def test_validate_json_output_and_logs_are_machine_readable(
     "arguments",
     [
         ("collect", "passive", "status"),
-        ("collect", "ad", "--domain", "example.invalid"),
         ("doctor",),
     ],
 )
@@ -118,6 +122,136 @@ def test_spec_placeholder_commands_are_present_and_explicit(
     captured = capsys.readouterr()
     assert "not implemented yet" in captured.out
     assert "command_unavailable" in captured.err
+
+
+def test_collect_ad_cli_uses_approved_target_and_opaque_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, root = database_config(tmp_path)
+    contexts: list[CollectorContext] = []
+    constructor: dict[str, object] = {}
+
+    class FakeCollector:
+        async def collect(self, collector_context: CollectorContext) -> CollectorResult:
+            contexts.append(collector_context)
+            return CollectorResult(9)
+
+    def make_collector(*args: object, **kwargs: object) -> FakeCollector:
+        constructor.update({"args": args, **kwargs})
+        return FakeCollector()
+
+    monkeypatch.setattr(cli, "ActiveDirectoryCollector", make_collector)
+    code = cli.run(
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "collect",
+            "ad",
+            "--target",
+            "192.168.50.10",
+        ],
+        run_id="ad-collect",
+    )
+    assert code == cli.ExitCode.SUCCESS
+    payload = json.loads(capsys.readouterr().out)
+    assert (payload["records"], payload["limitations"], payload["transport"]) == (9, 0, "ldaps")
+    assert payload["security_notice"] is None
+    assert constructor["server_name"] == "dc1.example.invalid"
+    assert constructor["documentation_groups"] == ["Documentation"]
+    collector_context = contexts[0]
+    assert collector_context.target == "192.168.50.10"
+    assert collector_context.credential_ref is not None
+    assert collector_context.credential_ref.key == "AD_SITE_PROFILE"
+    connection = sqlite3.connect(root / "discovery.db")
+    assert connection.execute("SELECT status FROM collector_runs").fetchone()[0] == "succeeded"
+    connection.close()
+
+
+def test_collect_ad_cli_partial_plaintext_notice_and_failed_auth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, _root = database_config(tmp_path)
+    document = yaml.safe_load(config_path.read_text())
+    document["collectors"]["ad"].update({"transport": "ldap", "allow_plaintext_ldap": True})
+    config_path.write_text(yaml.safe_dump(document))
+
+    class PartialCollector:
+        async def collect(self, _context: object) -> CollectorResult:
+            return CollectorResult(3, (CollectorIssue("partial", "fixture"),))
+
+    monkeypatch.setattr(
+        cli, "ActiveDirectoryCollector", lambda *_args, **_kwargs: PartialCollector()
+    )
+    arguments = [
+        "--json",
+        "--config",
+        str(config_path),
+        "collect",
+        "ad",
+        "--target",
+        "192.168.50.10",
+        "--server-name",
+        "override.example.invalid",
+        "--domain",
+        "example.invalid",
+    ]
+    assert cli.run(arguments, run_id="ad-partial") == cli.ExitCode.SUCCESS
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["status"] == "partial"
+    assert "not transport encrypted" in payload["security_notice"]
+    assert "ad_plaintext_ldap_explicitly_enabled" in captured.err
+
+    class ExpiredCollector:
+        async def collect(self, _context: object) -> CollectorResult:
+            raise CollectorAuthenticationError("expired")
+
+    monkeypatch.setattr(
+        cli, "ActiveDirectoryCollector", lambda *_args, **_kwargs: ExpiredCollector()
+    )
+    assert cli.run(arguments, run_id="ad-expired") == cli.ExitCode.COLLECTOR
+    assert json.loads(capsys.readouterr().out)["status"] == "failed"
+
+
+def test_collect_ad_cli_refuses_missing_config_target_and_repository_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, _root = database_config(tmp_path)
+    document = yaml.safe_load(config_path.read_text())
+    document["collectors"]["ad"]["credential_ref"] = None
+    config_path.write_text(yaml.safe_dump(document))
+    arguments = [
+        "--config",
+        str(config_path),
+        "collect",
+        "ad",
+        "--target",
+        "192.168.50.10",
+    ]
+    assert cli.run(arguments, run_id="ad-no-ref") == cli.ExitCode.CONFIGURATION
+    assert "credential reference" in capsys.readouterr().out
+
+    document["collectors"]["ad"]["credential_ref"] = {
+        "provider": "appliance_env",
+        "key": "AD_SITE_PROFILE",
+    }
+    document["collectors"]["ad"]["server_name"] = None
+    config_path.write_text(yaml.safe_dump(document))
+    assert cli.run(arguments, run_id="ad-no-name") == cli.ExitCode.CONFIGURATION
+    assert "domain, base DN, and server name" in capsys.readouterr().out
+
+    document["collectors"]["ad"]["server_name"] = "dc1.example.invalid"
+    config_path.write_text(yaml.safe_dump(document))
+    outside = [*arguments[:-1], "10.0.0.1"]
+    assert cli.run(outside, run_id="ad-outside") == cli.ExitCode.COLLECTOR
+    assert "outside approved" in capsys.readouterr().out
+
+    monkeypatch.setattr(
+        cli.Repository, "open", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline"))
+    )
+    assert cli.run(arguments, run_id="ad-offline") == cli.ExitCode.COLLECTOR
+    assert "offline" in capsys.readouterr().out
 
 
 def test_collect_snmp_cli_uses_common_scope_and_opaque_reference(
