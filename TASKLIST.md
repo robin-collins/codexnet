@@ -206,7 +206,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** runs without root, starts after networking, recovers from failure, respects memory/CPU limits, and cannot write outside approved paths.
 - **Balance:** review effective systemd sandbox and Linux capabilities; no broad `sudo` or privileged container.
 
-### [ ] G3 Stage 3 gate
+### [x] G3 Stage 3 gate
 
 - **Depends on:** T305, T306
 - **Verify:** controlled fixture/replay and approved lab capture enrich inventory/topology for 24 hours without leak, crash, unbounded growth, or full-packet retention; reboot recovery passes.
