@@ -360,6 +360,44 @@ def test_non_auth_and_malformed_sequence_keys_are_unchanged() -> None:
     assert Redactor().text(safe) == safe
 
 
+def test_escaped_serialized_authorization_sequences_are_bounded() -> None:
+    value = (
+        r"{\"Authorization\": [\"Bearer synthetic\", "
+        r"[\"nested synthetic\", \"escaped \\\"quote\\\" value\", "
+        r"\"path \\\\ server\"]], "
+        r"\"safe\": \"visible\", \"Authentication\": []}"
+    )
+    assert Redactor().text(value) == (
+        rf"{{\"Authorization\": \"{REDACTED}\", "
+        rf"\"safe\": \"visible\", \"Authentication\": \"{REDACTED}\"}}"
+    )
+
+
+def test_escaped_unicode_auth_sequence_key_and_safe_lookalike() -> None:
+    value = (
+        r"{\"Authoriz\u0061tion\": (\"synthetic\",), "
+        r"\"authorization_status\": [\"visible\"]}"
+    )
+    assert Redactor().text(value) == (
+        rf"{{\"Authoriz\u0061tion\": \"{REDACTED}\", "
+        r"\"authorization_status\": [\"visible\"]}"
+    )
+
+
+def test_escaped_sequence_malformed_and_depth_limits_fail_closed() -> None:
+    malformed = r"{\"Authorization\": [\"synthetic\"" + "\n" + r"\"safe-next\": \"visible\"}"
+    assert Redactor().text(malformed) == (
+        rf"{{\"Authorization\": \"{REDACTED}\"" + "\n" + r"\"safe-next\": \"visible\"}"
+    )
+    too_deep = r"\"Authentication\": " + "[" * 17 + r"\"synthetic\"" + "]" * 17 + "\nSafe: visible"
+    assert Redactor().text(too_deep) == (rf"\"Authentication\": \"{REDACTED}\"" + "\nSafe: visible")
+
+
+def test_malformed_escaped_sequence_key_is_unchanged() -> None:
+    value = r"{\"Authoriz\uZZZZtion\": [\"visible\"]}"
+    assert Redactor().text(value) == value
+
+
 def test_exception_keeps_only_type_and_redacted_message() -> None:
     rendered = Redactor(["synthetic-value"]).exception(RuntimeError("token=synthetic-value"))
     assert rendered == f"RuntimeError: token={REDACTED}"

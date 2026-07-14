@@ -83,6 +83,10 @@ _AUTH_SEQUENCE_START = re.compile(
     r"(?P<separator>\s*:\s*)(?P<open>[\[(])",
     re.IGNORECASE,
 )
+_ESCAPED_AUTH_SEQUENCE_START = re.compile(
+    r'(?P<key>\\"(?:(?!\\").)*\\")(?P<separator>\s*:\s*)(?P<open>[\[(])',
+    re.IGNORECASE,
+)
 
 
 def _redact_quoted_authorization(match: re.Match[str]) -> str:
@@ -116,14 +120,36 @@ def _is_authorization_key(token: str) -> bool:
     return isinstance(key, str) and key.casefold() in {"authorization", "authentication"}
 
 
-def _sequence_end(value: str, start: int) -> int | None:
+def _is_escaped_authorization_key(token: str) -> bool:
+    try:
+        key = json.loads(f'"{token[2:-2]}"')
+    except json.JSONDecodeError:
+        return False
+    return key.casefold() in {"authorization", "authentication"}
+
+
+def _sequence_end(value: str, start: int, *, serialized: bool = False) -> int | None:
     pairs = {"[": "]", "(": ")"}
     stack = [pairs[value[start]]]
     quote_character: str | None = None
     escaped = False
     limit = min(len(value), start + _MAX_SEQUENCE_CHARS)
-    for index in range(start + 1, limit):
+    index = start + 1
+    while index < limit:
         character = value[index]
+        if serialized and character == "\\":
+            slash_start = index
+            while index < limit and value[index] == "\\":
+                index += 1
+            if index < limit and value[index] in {"'", '"'}:
+                slash_count = index - slash_start
+                if quote_character is None:
+                    quote_character = value[index]
+                elif slash_count % 4 == 1 and value[index] == quote_character:
+                    quote_character = None
+                index += 1
+                continue
+            index = slash_start
         if quote_character is not None:
             if escaped:
                 escaped = False
@@ -131,6 +157,7 @@ def _sequence_end(value: str, start: int) -> int | None:
                 escaped = True
             elif character == quote_character:
                 quote_character = None
+            index += 1
             continue
         if character in {"'", '"'}:
             quote_character = character
@@ -147,6 +174,7 @@ def _sequence_end(value: str, start: int) -> int | None:
             stack.pop()
             if not stack:
                 return index + 1
+        index += 1
     return None
 
 
@@ -166,20 +194,27 @@ def _malformed_sequence_boundary(value: str, start: int) -> int:
     return boundary
 
 
-def _redact_authorization_sequences(value: str) -> str:
+def _redact_authorization_sequences(
+    value: str, *, pattern: re.Pattern[str] = _AUTH_SEQUENCE_START, serialized: bool = False
+) -> str:
     output: list[str] = []
     cursor = 0
-    while match := _AUTH_SEQUENCE_START.search(value, cursor):
+    while match := pattern.search(value, cursor):
         output.append(value[cursor : match.start()])
-        if not _is_authorization_key(match.group("key")):
+        key_is_authorization = (
+            _is_escaped_authorization_key(match.group("key"))
+            if serialized
+            else _is_authorization_key(match.group("key"))
+        )
+        if not key_is_authorization:
             output.append(value[match.start() : match.end()])
             cursor = match.end()
             continue
-        end = _sequence_end(value, match.end() - 1)
+        end = _sequence_end(value, match.end() - 1, serialized=serialized)
         if end is None:
             end = _malformed_sequence_boundary(value, match.end() - 1)
         key = match.group("key")
-        quote_character = '"' if '"' in key else "'"
+        quote_character = '\\"' if serialized else ('"' if '"' in key else "'")
         output.append(
             f"{key}{match.group('separator')}{quote_character}{REDACTED}{quote_character}"
         )
@@ -274,6 +309,9 @@ class Redactor:
             result = result.replace(variant, REDACTED)
         result = _PERCENT_TOKEN.sub(self._encoded, result)
         result = _HEX_TOKEN.sub(self._hex, result)
+        result = _redact_authorization_sequences(
+            result, pattern=_ESCAPED_AUTH_SEQUENCE_START, serialized=True
+        )
         result = _redact_authorization_sequences(result)
         result = _JSON_FIELD.sub(_redact_json_authorization, result)
         result = _ESCAPED_JSON_FIELD.sub(_redact_escaped_json_authorization, result)
