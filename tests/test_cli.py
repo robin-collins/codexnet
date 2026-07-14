@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 from field_discovery import cli
-from field_discovery.repository import IntegrityResult, RepositoryError
+from field_discovery.repository import IntegrityResult, Repository, RepositoryError
 from field_discovery.subnet import SubnetDescription, SubnetResolutionError
 
 ROOT = Path(__file__).parents[1]
@@ -105,8 +105,6 @@ def test_validate_json_output_and_logs_are_machine_readable(
         ("collect", "unifi", "--controller", "https://controller.invalid"),
         ("collect", "ad", "--domain", "example.invalid"),
         ("collect", "ssh", "--target", "192.168.50.20"),
-        ("report", "generate", "--format", "docx"),
-        ("report", "validate", "/tmp/report.docx"),
         ("doctor",),
     ],
 )
@@ -337,6 +335,60 @@ def test_nmap_import_cli_failure_has_stable_exit(
     )
     assert code == cli.ExitCode.IMPORT
     assert "data root is unavailable" in capsys.readouterr().out
+
+
+def test_report_cli_generates_validates_and_reports_failures(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config, root = database_config(tmp_path)
+    repository = Repository.open(root / "discovery.db", data_root=root)
+    repository.upsert_deployment("fixture", "Fixture Site", "2026-07-01T00:00:00+00:00")
+    repository.close()
+    output = root / "reports"
+    generate = [
+        "--json",
+        "--config",
+        str(config),
+        "report",
+        "generate",
+        "--output-dir",
+        str(output),
+    ]
+    assert cli.run(generate, run_id="report-generate") == cli.ExitCode.SUCCESS
+    generated = json.loads(capsys.readouterr().out)
+    report = Path(generated["docx"])
+    assert report.is_file()
+    assert Path(generated["json"]).is_file()
+    assert (
+        cli.run(
+            ["--json", "--config", str(config), "report", "validate", str(report)],
+            run_id="report-validate",
+        )
+        == cli.ExitCode.SUCCESS
+    )
+    validated = json.loads(capsys.readouterr().out)
+    assert validated["paragraphs"] > 0
+    assert validated["external_relationships"] == []
+
+    bad = tmp_path / "bad.docx"
+    bad.write_text("not a package")
+    assert (
+        cli.run(
+            ["--config", str(config), "report", "validate", str(bad)],
+            run_id="report-invalid",
+        )
+        == cli.ExitCode.REPORT
+    )
+    assert "validation failed" in capsys.readouterr().out.lower()
+
+    empty_parent = tmp_path / "empty"
+    empty_parent.mkdir()
+    empty_config, _empty_root = database_config(empty_parent)
+    assert (
+        cli.run(["--config", str(empty_config), "report", "generate"], run_id="report-empty")
+        == cli.ExitCode.REPORT
+    )
+    assert "no deployment" in capsys.readouterr().out
 
 
 def test_database_cli_check_backup_and_prune(

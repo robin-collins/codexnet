@@ -135,7 +135,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** mock script tests cover success, failure, timeout, missing script, and concurrent invocation lock.
 - **Balance:** no automatic scheduler invokes this command; the existing root cron remains the only scheduled active scanner.
 
-### [ ] T203 Generate the minimum DOCX/JSON inventory report
+### [x] T203 Generate the minimum DOCX/JSON inventory report
 
 - **Depends on:** T102, T103, T201
 - **Deliver:** deterministic JSON report model and basic `.docx` containing metadata, coverage, device inventory, services, evidence age, conflicts, and limitations.

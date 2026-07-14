@@ -20,6 +20,7 @@ from field_discovery.config import ConfigurationError, load_config
 from field_discovery.logging import configure_logging
 from field_discovery.nmap_import import NmapImportError, import_nmap_artifacts
 from field_discovery.nmap_scan import ScanLaunchError, run_nmap_scan
+from field_discovery.reporting import ReportError, generate_reports, validate_docx
 from field_discovery.repository import Repository, RepositoryError, RetentionCutoffs
 from field_discovery.subnet import SubnetResolutionError, resolve_subnet
 
@@ -38,6 +39,7 @@ class ExitCode(IntEnum):
     DATABASE = 6
     SCAN_REFUSED = 7
     IMPORT = 8
+    REPORT = 9
 
 
 class CliParser(argparse.ArgumentParser):
@@ -108,6 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     report_sub = report.add_subparsers(dest="action", required=True)
     generate = _command_parser(report_sub, "generate", "generate a report")
     generate.add_argument("--format", choices=("docx",), default="docx")
+    generate.add_argument("--output-dir", type=Path)
     validate = _command_parser(report_sub, "validate", "validate a DOCX report")
     validate.add_argument("report", type=Path)
 
@@ -325,6 +328,69 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
         )
         _emit(payload, json_mode=arguments.json_mode)
         return result.exit_code
+    if command == "report validate":
+        try:
+            validation = validate_docx(arguments.report)
+        except ReportError as exc:
+            logger.error("report_validation_failed", extra={"command": command, "reason": str(exc)})
+            _emit(
+                {"ok": False, "command": command, "message": f"Report validation failed: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.REPORT)
+        _emit(
+            {
+                "ok": True,
+                "command": command,
+                "message": "DOCX report validation passed.",
+                "paragraphs": validation.paragraph_count,
+                "tables": validation.table_count,
+                "external_relationships": list(validation.external_relationships),
+            },
+            json_mode=arguments.json_mode,
+        )
+        return int(ExitCode.SUCCESS)
+    if command == "report generate":
+        paths = configuration.data["paths"]
+        repository = None
+        try:
+            repository = Repository.open(
+                Path(paths["database"]), data_root=Path(paths["data_root"])
+            )
+            deployment = repository.connection.execute(
+                "SELECT id FROM deployments ORDER BY id LIMIT 1"
+            ).fetchone()
+            if deployment is None:
+                raise ReportError("no deployment is available to report")
+            outputs = generate_reports(
+                repository,
+                int(deployment["id"]),
+                arguments.output_dir or Path(paths["data_root"]) / "reports",
+                generated_at=datetime.now(UTC),
+                confidentiality=str(configuration.data["report"]["confidentiality"]),
+            )
+            payload = {
+                "ok": True,
+                "command": command,
+                "message": f"DOCX report generated: {outputs.docx_path}",
+                "docx": str(outputs.docx_path),
+                "json": str(outputs.json_path),
+                "docx_sha256": outputs.docx_sha256,
+                "json_sha256": outputs.json_sha256,
+            }
+            logger.info("report_generated", extra={"command": command})
+            _emit(payload, json_mode=arguments.json_mode)
+            return int(ExitCode.SUCCESS)
+        except (ReportError, RepositoryError, sqlite3.Error, OSError) as exc:
+            logger.error("report_generation_failed", extra={"command": command, "reason": str(exc)})
+            _emit(
+                {"ok": False, "command": command, "message": f"Report generation failed: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.REPORT)
+        finally:
+            if repository is not None:
+                repository.close()
     if arguments.group == "db":
         paths = configuration.data["paths"]
         try:

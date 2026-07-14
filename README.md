@@ -44,8 +44,9 @@ Help and version output do not read configuration, require root, or contact the 
 whose implementation belongs to later tasks are visible in help and exit explicitly with status 4.
 Stable statuses are 0 (success), 2 (usage), 3 (invalid configuration), 4 (not implemented), 5
 (subnet resolution failure), 6 (database operation failure), 7 (scan refused), and 70
-(unexpected internal failure). Status 8 reports a failed nmap import operation. An invoked scan
-otherwise propagates the protected script's status.
+(unexpected internal failure). Status 8 reports a failed nmap import operation and status 9 a
+report generation or validation failure. An invoked scan otherwise propagates the protected
+script's status.
 
 `discover subnet` reads the selected interface's Linux address and route state plus resolver
 configuration. It reports the normalized IPv4 CIDR, gateway, DNS servers, DHCP/kernel metadata,
@@ -64,6 +65,16 @@ are deferred for a later pass.
 
 ```bash
 field-discovery --config /etc/field-discovery/config.yaml import nmap
+```
+
+`report generate` writes a paired, self-contained DOCX and deterministic JSON inventory under
+the CodexNet data root. The report includes collection coverage, device and service inventories,
+evidence source/age/confidence, conflicts, and explicit limitations. `report validate` checks
+bounded ZIP/XML structure, required content, redaction, and rejects external relationships.
+
+```bash
+field-discovery --config /etc/field-discovery/config.yaml report generate --format docx
+field-discovery --config /etc/field-discovery/config.yaml report validate /path/to/report.docx
 ```
 
 `scan nmap` is never scheduled by CodexNet. It resolves and verifies the configured
