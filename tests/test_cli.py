@@ -101,7 +101,6 @@ def test_validate_json_output_and_logs_are_machine_readable(
     [
         ("collect", "passive", "status"),
         ("collect", "snmp", "--target", "192.168.50.10"),
-        ("collect", "unifi", "--controller", "https://controller.invalid"),
         ("collect", "ad", "--domain", "example.invalid"),
         ("collect", "ssh", "--target", "192.168.50.20"),
         ("doctor",),
@@ -114,6 +113,73 @@ def test_spec_placeholder_commands_are_present_and_explicit(
     captured = capsys.readouterr()
     assert "not implemented yet" in captured.out
     assert "command_unavailable" in captured.err
+
+
+def test_collect_unifi_cli_runs_only_configured_controller(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, _root = database_config(tmp_path)
+
+    class FakeCollector:
+        async def collect(self, _context: object) -> object:
+            return type("Result", (), {"item_count": 2})()
+
+    monkeypatch.setattr(cli, "UniFiCollector", lambda *_args, **_kwargs: FakeCollector())
+    monkeypatch.setattr(cli, "resolve_credentials", lambda *_args, **_kwargs: object())
+    code = cli.run(["--json", "--config", str(config_path), "collect", "unifi"], run_id="unifi-run")
+    assert code == cli.ExitCode.SUCCESS
+    payload = json.loads(capsys.readouterr().out)
+    assert (payload["sites"], payload["failures"]) == (2, 0)
+
+    code = cli.run(
+        [
+            "--config",
+            str(config_path),
+            "collect",
+            "unifi",
+            "--controller",
+            "https://not-configured.invalid",
+        ],
+        run_id="unifi-none",
+    )
+    assert code == cli.ExitCode.CONFIGURATION
+    assert "No matching" in capsys.readouterr().out
+
+
+def test_collect_unifi_cli_records_safe_controller_and_repository_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, root = database_config(tmp_path)
+
+    class FailingCollector:
+        async def collect(self, _context: object) -> object:
+            raise cli.UniFiError("synthetic controller refusal")
+
+    monkeypatch.setattr(cli, "UniFiCollector", lambda *_args, **_kwargs: FailingCollector())
+    code = cli.run(["--config", str(config_path), "collect", "unifi"], run_id="unifi-fail")
+    assert code == cli.ExitCode.COLLECTOR
+    assert "1 failed" in capsys.readouterr().out
+    connection = sqlite3.connect(root / "discovery.db")
+    assert connection.execute("SELECT status FROM collector_runs").fetchone()[0] == "failed"
+    connection.close()
+
+    document = yaml.safe_load(config_path.read_text())
+    document["collectors"]["unifi"]["endpoints"][0]["credential_ref"] = None
+    config_path.write_text(yaml.safe_dump(document))
+    assert (
+        cli.run(["--config", str(config_path), "collect", "unifi"], run_id="unifi-no-ref")
+        == cli.ExitCode.COLLECTOR
+    )
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        cli.Repository, "open", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline"))
+    )
+    assert (
+        cli.run(["--config", str(config_path), "collect", "unifi"], run_id="unifi-db-fail")
+        == cli.ExitCode.COLLECTOR
+    )
+    assert "offline" in capsys.readouterr().out
 
 
 def test_status_reports_recent_collector_runs(

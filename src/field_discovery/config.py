@@ -233,7 +233,9 @@ def _check_provider_keys(provider: object, path: str) -> None:
 def _check_endpoint_keys(endpoint: object, path: str) -> None:
     if not isinstance(endpoint, dict):
         raise ConfigurationError(f"{path} must be a mapping")
-    unknown = sorted(set(endpoint) - {"url", "verify_tls", "allow_self_signed", "credential_ref"})
+    unknown = sorted(
+        set(endpoint) - {"url", "api_type", "verify_tls", "allow_self_signed", "credential_ref"}
+    )
     if unknown:
         raise ConfigurationError(f"{path} contains unknown key: {unknown[0]}")
 
@@ -398,6 +400,8 @@ def _validate_protocols(collectors: dict[str, Any]) -> None:
         raise ConfigurationError("collectors.ssh.host_key_policy must be strict or accept-new")
     for index, endpoint in enumerate(collectors["unifi"]["endpoints"]):
         path = f"collectors.unifi.endpoints[{index}]"
+        if endpoint.get("api_type", "modern") not in {"modern", "legacy"}:
+            raise ConfigurationError(f"{path}.api_type must be modern or legacy")
         url = endpoint.get("url")
         if not isinstance(url, str):
             raise ConfigurationError(f"{path}.url must use https://")

@@ -146,6 +146,7 @@ def test_unsafe_targets_fail(ranges: object, max_hosts: int, message: str) -> No
         ("collectors.unifi.endpoints.0.url", "http://controller.invalid", "must use https"),
         ("collectors.unifi.endpoints.0.verify_tls", "yes", "true or false"),
         ("collectors.unifi.endpoints.0.allow_self_signed", "yes", "true or false"),
+        ("collectors.unifi.endpoints.0.api_type", "future", "modern or legacy"),
     ],
 )
 def test_insecure_or_invalid_protocols_fail(path: str, value: object, message: str) -> None:

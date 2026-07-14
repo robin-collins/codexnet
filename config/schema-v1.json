@@ -127,6 +127,7 @@
       "required": ["url", "verify_tls", "allow_self_signed", "credential_ref"],
       "properties": {
         "url": {"type": "string", "pattern": "^https://"},
+        "api_type": {"enum": ["modern", "legacy"], "default": "modern"},
         "verify_tls": {"type": "boolean", "default": true},
         "allow_self_signed": {"type": "boolean", "default": false},
         "credential_ref": {"$ref": "#/$defs/secretRef"}

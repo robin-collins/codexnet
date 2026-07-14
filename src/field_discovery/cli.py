@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import sqlite3
@@ -14,8 +15,10 @@ from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, NoReturn, cast
+from urllib.parse import urlsplit
 
 from field_discovery import __version__
+from field_discovery.collectors import CollectorContext, CollectorError, CredentialReference
 from field_discovery.config import ConfigurationError, load_config
 from field_discovery.logging import configure_logging
 from field_discovery.nmap_import import NmapImportError, import_nmap_artifacts
@@ -23,6 +26,12 @@ from field_discovery.nmap_scan import ScanLaunchError, run_nmap_scan
 from field_discovery.reporting import ReportError, generate_reports, validate_docx
 from field_discovery.repository import Repository, RepositoryError, RetentionCutoffs
 from field_discovery.subnet import SubnetResolutionError, resolve_subnet
+from field_discovery.unifi import (
+    UniFiCollector,
+    UniFiError,
+    endpoint_from_config,
+    resolve_credentials,
+)
 
 DEFAULT_CONFIG = Path("/etc/field-discovery/config.yaml")
 
@@ -40,6 +49,7 @@ class ExitCode(IntEnum):
     SCAN_REFUSED = 7
     IMPORT = 8
     REPORT = 9
+    COLLECTOR = 10
 
 
 class CliParser(argparse.ArgumentParser):
@@ -228,6 +238,102 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
             json_mode=arguments.json_mode,
         )
         return int(ExitCode.SUCCESS)
+    if command == "collect unifi":
+        endpoints = configuration.data["collectors"]["unifi"]["endpoints"]
+        selected = set(arguments.controller or ())
+        if selected:
+            endpoints = [endpoint for endpoint in endpoints if endpoint["url"] in selected]
+        if not endpoints:
+            _emit(
+                {
+                    "ok": False,
+                    "command": command,
+                    "message": "No matching configured UniFi controller endpoint.",
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.CONFIGURATION)
+        paths = configuration.data["paths"]
+        unifi_repository: Repository | None = None
+        try:
+            unifi_repository = Repository.open(
+                Path(paths["database"]), data_root=Path(paths["data_root"])
+            )
+            timestamp = datetime.now(UTC)
+            deployment_id = unifi_repository.upsert_deployment(
+                "default", "Default deployment", timestamp.isoformat()
+            )
+            total = 0
+            failures = 0
+            for value in endpoints:
+                endpoint = endpoint_from_config(value)
+                reference = CredentialReference.from_mapping(value.get("credential_ref"))
+                unifi_run = unifi_repository.start_run(
+                    deployment_id,
+                    "unifi",
+                    timestamp.isoformat(),
+                    target_cidr=urlsplit(endpoint.url).hostname,
+                )
+                try:
+                    if reference is None:
+                        raise UniFiError("UniFi collection requires a credential reference")
+                    collector = UniFiCollector(
+                        endpoint,
+                        lambda requested: resolve_credentials(
+                            requested, configuration.data["secret_providers"]
+                        ),
+                    )
+                    unifi_result = asyncio.run(
+                        collector.collect(
+                            CollectorContext(
+                                urlsplit(endpoint.url).hostname or "controller",
+                                reference,
+                                asyncio.Event(),
+                            )
+                        )
+                    )
+                    total += unifi_result.item_count
+                    unifi_repository.finish_run(
+                        unifi_run,
+                        "succeeded",
+                        datetime.now(UTC).isoformat(),
+                        unifi_result.item_count,
+                    )
+                except CollectorError as exc:
+                    failures += 1
+                    unifi_repository.record_collector_error(
+                        unifi_run,
+                        category="unifi",
+                        detail=unifi_repository.redactor.text(exc),
+                        retryable=False,
+                        source="unifi",
+                        observed_at=datetime.now(UTC).isoformat(),
+                    )
+                    unifi_repository.finish_run(
+                        unifi_run, "failed", datetime.now(UTC).isoformat(), 0
+                    )
+            ok = failures == 0
+            _emit(
+                {
+                    "ok": ok,
+                    "command": command,
+                    "message": f"UniFi collection: {total} sites, {failures} failed controllers.",
+                    "sites": total,
+                    "failures": failures,
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.SUCCESS if ok else ExitCode.COLLECTOR)
+        except (RepositoryError, sqlite3.Error, OSError, CollectorError) as exc:
+            logger.error("unifi_collection_failed", extra={"command": command, "reason": str(exc)})
+            _emit(
+                {"ok": False, "command": command, "message": f"UniFi collection failed: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.COLLECTOR)
+        finally:
+            if unifi_repository is not None:
+                unifi_repository.close()
     if command == "import nmap":
         paths = configuration.data["paths"]
         repository: Repository | None = None

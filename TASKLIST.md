@@ -257,7 +257,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 
 ## Stage 5 — UniFi and Active Directory collection
 
-### [ ] T500 Implement UniFi detection and API client
+### [x] T500 Implement UniFi detection and API client
 
 - **Depends on:** T105, T400
 - **Deliver:** conservative discovery candidates, configured UniFi OS/legacy endpoints, TLS verification by default, read-only client behavior, bounded pagination, and `collect unifi`.

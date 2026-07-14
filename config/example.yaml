@@ -50,6 +50,7 @@ collectors:
     enabled: false
     endpoints:
       - url: https://unifi.example.invalid
+        api_type: modern
         verify_tls: true
         allow_self_signed: false
         credential_ref:

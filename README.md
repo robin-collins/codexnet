@@ -102,3 +102,7 @@ Use CodexNet only on networks for which you have explicit authorisation. Collect
 Collector lifecycle, target approval, bounded scheduling, cancellation, and durable run status are
 documented in [docs/collector-framework.md](docs/collector-framework.md). Protocol-specific active
 collectors remain disabled until their corresponding implementation task is complete.
+
+Configured UniFi OS and legacy controllers can be queried with `collect unifi`. Detection uses
+existing evidence only, controller TLS verification is strict by default, and API reads are
+bounded and allowlisted. See [docs/unifi-collection.md](docs/unifi-collection.md).
