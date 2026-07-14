@@ -99,7 +99,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** fixtures cover `/24`, `/23`, multiple addresses, no address, Docker/Tailscale interfaces, and unsafe broad prefixes; selected target matches the kernel route/address data.
 - **Balance:** resolver only describes targets; it never initiates scanning.
 
-### [ ] T105 Implement redaction and safe artifact handling
+### [x] T105 Implement redaction and safe artifact handling
 
 - **Depends on:** T003, T100
 - **Deliver:** centralized redaction filter, restrictive file creation, safe filenames/paths, artifact metadata, size limits, and retention hooks.
