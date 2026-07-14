@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import re
+import ssl
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -271,6 +272,7 @@ class Ldap3RootDSEProbe:
             address,
             port=port,
             use_ssl=port == 636,
+            tls=ldap3.Tls(validate=ssl.CERT_REQUIRED) if port == 636 else None,
             connect_timeout=self.timeout_seconds,
             get_info=ldap3.NONE,
         )

@@ -30,7 +30,8 @@ the empty DN with `(objectClass=*)`. It requests only this fixed metadata allowl
 - naming-context list; and
 - supported-capability OIDs.
 
-No credential argument exists in the RootDSE adapter protocol or detector API. The response is
+No credential argument exists in the RootDSE adapter protocol or detector API. LDAPS explicitly
+requires system-CA certificate validation; there is no detection-time bypass. The response is
 bounded and rejected if it contains unknown attributes, non-text values, excessive values, a
 default naming context for another domain, or no recognised AD capability OID. LDAP port 389 is
 used for metadata-only detection unless existing evidence explicitly identifies LDAPS 636. T503

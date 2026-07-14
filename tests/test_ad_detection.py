@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import ssl
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -597,7 +598,14 @@ def test_ldap3_rootdse_adapter_is_anonymous_base_scope_and_closes(
         servers.append((args, kwargs))
         return object()
 
+    tls_calls: list[object] = []
+
+    def tls(*, validate: object) -> object:
+        tls_calls.append(validate)
+        return "strict-tls"
+
     monkeypatch.setattr(ldap3, "Server", server)
+    monkeypatch.setattr(ldap3, "Tls", tls)
     monkeypatch.setattr(ldap3, "Connection", FakeLDAPConnection)
     FakeLDAPConnection.search_result = True
     FakeLDAPConnection.entries_result = [FakeLDAPEntry()]
@@ -606,6 +614,8 @@ def test_ldap3_rootdse_adapter_is_anonymous_base_scope_and_closes(
     result = asyncio.run(probe.query("192.168.50.10", 636))
     assert result["defaultNamingContext"] == ["DC=alpha,DC=example,DC=invalid"]
     assert servers[0][1]["use_ssl"] is True
+    assert servers[0][1]["tls"] == "strict-tls"
+    assert tls_calls == [ssl.CERT_REQUIRED]
     assert FakeLDAPConnection.kwargs["authentication"] == ldap3.ANONYMOUS
     assert "user" not in FakeLDAPConnection.kwargs
     search_kwargs = cast(dict[str, object], FakeLDAPConnection.search_args[-1])
