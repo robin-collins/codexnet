@@ -121,7 +121,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** sanitized fixtures cover successful, partial, malformed, large, IPv4-only, missing-field, TCP, and UDP scans; malformed input fails without partial uncommitted data.
 - **Balance:** XML parsing disables external entities and network resolution.
 
-### [ ] T201 Build idempotent nmap artifact import
+### [x] T201 Build idempotent nmap artifact import
 
 - **Depends on:** T102, T103, T200
 - **Deliver:** configurable recursive discovery under `/var/log/network-discovery`, stable-file detection, digest/path tracking, transactional import, and `import nmap`.

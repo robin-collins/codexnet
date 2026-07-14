@@ -9,6 +9,7 @@ import sqlite3
 import sys
 import uuid
 from collections.abc import Sequence
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 from pathlib import Path
@@ -17,6 +18,8 @@ from typing import Any, NoReturn, cast
 from field_discovery import __version__
 from field_discovery.config import ConfigurationError, load_config
 from field_discovery.logging import configure_logging
+from field_discovery.nmap_import import NmapImportError, import_nmap_artifacts
+from field_discovery.nmap_scan import ScanLaunchError, run_nmap_scan
 from field_discovery.repository import Repository, RepositoryError, RetentionCutoffs
 from field_discovery.subnet import SubnetResolutionError, resolve_subnet
 
@@ -33,6 +36,8 @@ class ExitCode(IntEnum):
     INTERNAL = 70
     RESOLUTION = 5
     DATABASE = 6
+    SCAN_REFUSED = 7
+    IMPORT = 8
 
 
 class CliParser(argparse.ArgumentParser):
@@ -82,10 +87,22 @@ def build_parser() -> argparse.ArgumentParser:
     import_sub = import_group.add_subparsers(dest="action", required=True)
     nmap_import = _command_parser(import_sub, "nmap", "import nmap XML")
     nmap_import.add_argument("--path", type=Path)
+    nmap_import.add_argument(
+        "--stability-seconds",
+        type=float,
+        default=5.0,
+        help="minimum unchanged artifact age before import",
+    )
 
     scan = _command_parser(commands, "scan", "explicit active scan operations")
     scan_sub = scan.add_subparsers(dest="action", required=True)
-    _command_parser(scan_sub, "nmap", "explicitly invoke the protected nmap script")
+    nmap_scan = _command_parser(scan_sub, "nmap", "explicitly invoke the protected nmap script")
+    nmap_scan.add_argument(
+        "--yes", action="store_true", help="confirm the authorised active scan non-interactively"
+    )
+    nmap_scan.add_argument(
+        "--timeout", type=int, help="outer timeout in seconds (default: configured value)"
+    )
 
     report = _command_parser(commands, "report", "report operations")
     report_sub = report.add_subparsers(dest="action", required=True)
@@ -174,6 +191,140 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
             json_mode=arguments.json_mode,
         )
         return int(ExitCode.SUCCESS)
+    if command == "import nmap":
+        paths = configuration.data["paths"]
+        repository: Repository | None = None
+        run_record: int | None = None
+        timestamp = datetime.now(UTC)
+        try:
+            repository = Repository.open(
+                Path(paths["database"]), data_root=Path(paths["data_root"])
+            )
+            deployment_id = repository.upsert_deployment(
+                "default", "Default deployment", timestamp.isoformat()
+            )
+            run_record = repository.start_run(deployment_id, "nmap_import", timestamp.isoformat())
+            summary = import_nmap_artifacts(
+                repository,
+                arguments.path or Path(paths["nmap_results"]),
+                deployment_id=deployment_id,
+                collector_run_id=run_record,
+                stability_seconds=arguments.stability_seconds,
+                now=timestamp,
+            )
+            for issue in summary.issues:
+                repository.connection.execute(
+                    "INSERT INTO collector_errors"
+                    "(collector_run_id, category, detail, retryable, source, observed_at) "
+                    "VALUES (?, ?, ?, ?, 'nmap_import', ?)",
+                    (
+                        run_record,
+                        issue.category,
+                        repository.redactor.text(issue.detail),
+                        int(issue.retryable),
+                        timestamp.isoformat(),
+                    ),
+                )
+            status = "partial" if summary.issues else "succeeded"
+            repository.finish_run(run_record, status, datetime.now(UTC).isoformat(), summary.hosts)
+            payload = {
+                "ok": True,
+                "command": command,
+                "message": (
+                    f"Nmap import: {summary.imported} imported, {summary.skipped} skipped, "
+                    f"{summary.deferred} deferred, {len(summary.issues)} errors."
+                ),
+                "discovered": summary.discovered,
+                "imported": summary.imported,
+                "skipped": summary.skipped,
+                "deferred": summary.deferred,
+                "hosts": summary.hosts,
+                "errors": len(summary.issues),
+            }
+            logger.info(
+                "nmap_import_completed",
+                extra={
+                    "command": command,
+                    "imported": summary.imported,
+                    "skipped": summary.skipped,
+                    "deferred": summary.deferred,
+                    "errors": len(summary.issues),
+                },
+            )
+            _emit(payload, json_mode=arguments.json_mode)
+            return int(ExitCode.SUCCESS)
+        except (NmapImportError, RepositoryError, sqlite3.Error, OSError) as exc:
+            if repository is not None and run_record is not None:
+                with suppress(RepositoryError, sqlite3.Error):
+                    repository.finish_run(run_record, "failed", datetime.now(UTC).isoformat(), 0)
+            logger.error("nmap_import_failed", extra={"command": command, "reason": str(exc)})
+            _emit(
+                {"ok": False, "command": command, "message": f"Nmap import failed: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.IMPORT)
+        finally:
+            if repository is not None:
+                repository.close()
+    if command == "scan nmap":
+        if not arguments.yes:
+            if arguments.json_mode or not sys.stdin.isatty():
+                _emit(
+                    {
+                        "ok": False,
+                        "command": command,
+                        "message": "Active scan not confirmed; rerun with --yes.",
+                    },
+                    json_mode=arguments.json_mode,
+                )
+                return int(ExitCode.SCAN_REFUSED)
+            answer = input("Type SCAN to confirm this authorised active network scan: ")
+            if answer != "SCAN":
+                _emit(
+                    {"ok": False, "command": command, "message": "Active scan cancelled."},
+                    json_mode=False,
+                )
+                return int(ExitCode.SCAN_REFUSED)
+        timeout = arguments.timeout or configuration.data["active"]["scan_timeout_seconds"]
+        try:
+            result = run_nmap_scan(configuration.data, timeout_seconds=timeout)
+        except (ScanLaunchError, SubnetResolutionError, RepositoryError, OSError) as exc:
+            logger.error("nmap_scan_refused", extra={"command": command, "reason": str(exc)})
+            _emit(
+                {"ok": False, "command": command, "message": f"Active scan refused: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.SCAN_REFUSED)
+        payload = {
+            "ok": result.exit_code == 0,
+            "command": command,
+            "message": (
+                f"Active scan {result.status} for {result.interface} ({result.cidr}); "
+                f"exit code {result.exit_code}."
+            ),
+            "scan": {
+                "status": result.status,
+                "exit_code": result.exit_code,
+                "interface": result.interface,
+                "cidr": result.cidr,
+                "started_at": result.started_at,
+                "finished_at": result.finished_at,
+                "duration_seconds": result.duration_seconds,
+                "script_sha256": result.script_sha256,
+            },
+        }
+        logger.info(
+            "nmap_scan_finished",
+            extra={
+                "command": command,
+                "status": result.status,
+                "exit_code": result.exit_code,
+                "interface": result.interface,
+                "cidr": result.cidr,
+            },
+        )
+        _emit(payload, json_mode=arguments.json_mode)
+        return result.exit_code
     if arguments.group == "db":
         paths = configuration.data["paths"]
         try:
