@@ -24,7 +24,7 @@ Install the application and dedicated virtual environment under `/opt/field-disc
 the files, then install the account/unit without enabling it:
 
 ```bash
-sudo packaging/install/install-passive-service.sh /home/osit/codexnet
+sudo /opt/field-discovery/packaging/install/install-passive-service.sh /opt/field-discovery
 sudo systemd-analyze verify /usr/lib/systemd/system/field-discovery-passive.service
 sudo systemd-analyze security field-discovery-passive.service
 ```

@@ -4,6 +4,12 @@ CodexNet is a portable, offline-first network discovery and documentation framew
 
 The current build scope and acceptance criteria are defined in [SPEC.md](SPEC.md).
 
+Deployments should begin with the repeatable [Raspberry Pi installation runbook](docs/installation.md)
+and continue with the [operator guide](docs/operator-guide.md). These cover reviewed-release
+installation and upgrade, credential profiles, normal collection, explicit manual scanning,
+validated Word handoff, backup/restore, troubleshooting, retention, and protected-state-safe
+removal.
+
 ## Project status
 
 Foundation implementation is in progress according to [TASKLIST.md](TASKLIST.md).

@@ -50,9 +50,15 @@ future nmap artifact imports. CodexNet does not upload the resulting report.
 
 ## Installation and rollback
 
-Installation tooling will be delivered in the operations stage. Until then,
-these units are packaging artifacts only and must not be copied to the host or
-enabled implicitly. A future installer must enable only the import timer, never
-an nmap scan timer. Rollback disables and removes these CodexNet-owned unit files
-and leaves `/usr/local/sbin/network-discovery-scan.sh`, cron, the nmap result
-tree, and Scanopy untouched.
+After installing the application, copy the importer units without enabling them, review the
+service sandbox, then explicitly enable only the import timer:
+
+```bash
+sudo /opt/field-discovery/packaging/install/install-nmap-import-service.sh /opt/field-discovery
+sudo systemd-analyze verify /usr/lib/systemd/system/field-discovery-nmap-import.service /usr/lib/systemd/system/field-discovery-nmap-import.timer
+sudo systemctl enable --now field-discovery-nmap-import.timer
+```
+
+The installer never enables or starts a unit and supplies no nmap scan service or timer. The
+protected script, cron, result tree, and Scanopy remain untouched. Full install and rollback steps
+are in [installation.md](installation.md).

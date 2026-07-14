@@ -24,7 +24,7 @@ persistent across downtime, randomized, bounded, network-disabled, and writable 
 CodexNet data root. Install files without starting them, review them, then enable explicitly:
 
 ```bash
-sudo packaging/install/install-maintenance-services.sh /home/osit/codexnet
+sudo /opt/field-discovery/packaging/install/install-maintenance-services.sh /opt/field-discovery
 sudo systemctl enable --now field-discovery-recovery.service
 sudo systemctl enable --now field-discovery-backup.timer
 systemctl list-timers field-discovery-backup.timer

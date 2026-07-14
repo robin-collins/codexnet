@@ -328,7 +328,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** low-disk simulation pauses safely; backup/restore and reboot tests pass; prune dry-run matches applied result; uninstall leaves Scanopy/nmap untouched.
 - **Balance:** deletion is constrained to owned paths and requires path/symlink checks.
 
-### [ ] T604 Produce installation and operator documentation
+### [x] T604 Produce installation and operator documentation
 
 - **Depends on:** T601, T602, T603
 - **Deliver:** repeatable Pi install/upgrade/remove, config and credential profiles, normal operation, manual scan warning, collector setup, report generation/upload, backup/restore, troubleshooting, and data-retention guidance.
