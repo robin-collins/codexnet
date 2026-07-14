@@ -32,6 +32,9 @@ EXPECTED_TABLES = {
     "software_observations",
     "subnets",
     "topology_edges",
+    "unifi_entities",
+    "unifi_relationships",
+    "unifi_sites",
     "vlans",
 }
 
@@ -70,11 +73,12 @@ def columns(connection: sqlite3.Connection, table: str) -> set[str]:
 
 def test_packaged_migrations_are_numbered_and_immutable() -> None:
     migrations = database.available_migrations()
-    assert [item.version for item in migrations] == [1, 2, 3]
+    assert [item.version for item in migrations] == [1, 2, 3, 4]
     assert [item.name for item in migrations] == [
         "core_inventory",
         "directory_infrastructure_reports",
         "repository_idempotency",
+        "unifi_inventory",
     ]
     assert all(len(item.checksum) == 64 for item in migrations)
     assert migrations == database.available_migrations()
@@ -83,12 +87,12 @@ def test_packaged_migrations_are_numbered_and_immutable() -> None:
 def test_empty_database_migrates_to_latest_and_rerun_is_safe(
     connection: sqlite3.Connection,
 ) -> None:
-    assert database.migrate(connection) == 3
+    assert database.migrate(connection) == 4
     first_history = connection.execute(
         "SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version"
     ).fetchall()
-    assert len(first_history) == 3
-    assert database.migrate(connection) == 3
+    assert len(first_history) == 4
+    assert database.migrate(connection) == 4
     assert (
         connection.execute("SELECT * FROM schema_migrations ORDER BY version").fetchall()
         == first_history
@@ -100,7 +104,7 @@ def test_empty_database_migrates_to_latest_and_rerun_is_safe(
         )
     }
     assert tables == EXPECTED_TABLES
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
     assert connection.execute("PRAGMA application_id").fetchone()[0] == database.APPLICATION_ID
 
 

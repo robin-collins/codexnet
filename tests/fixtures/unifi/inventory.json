@@ -1,0 +1,34 @@
+{
+  "controller_key": "controller.invalid:443",
+  "sites": [
+    {"_id": "site-a", "desc": "Synthetic Alpha"},
+    {"_id": "site-b", "desc": "Synthetic Beta"}
+  ],
+  "resources": {
+    "site-a/devices": [
+      {"_id": "sw-1", "type": "usw", "name": "Synthetic Switch", "mac": "02:00:00:00:00:01", "serial": "SYN-SW-1", "model": "USW-Synthetic", "version": "1.2.3", "state": 1, "port_table": [{"port_idx": 1, "name": "Port 1", "up": true, "speed": 1000, "poe_mode": "auto"}]},
+      {"_id": "ap-1", "type": "uap", "name": "Synthetic AP", "mac": "02:00:00:00:00:02", "model": "UAP-Synthetic", "version": "4.5.6", "uplink_device": "sw-1"},
+      {"_id": "ap-1", "type": "uap", "name": "Duplicate API row", "mac": "02:00:00:00:00:02"},
+      {"_id": "ignored", "type": "future-device"}
+    ],
+    "site-a/clients": [
+      {"_id": "client-reused", "hostname": "stale-client.invalid", "mac": "02:00:00:00:10:01", "ip": "192.0.2.50", "connected": false, "last_seen": 1700000000, "uplink_device": "sw-1"}
+    ],
+    "site-a/networks": [{"_id": "net-1", "name": "Synthetic LAN", "vlan": 20, "purpose": "corporate"}],
+    "site-a/wlans": [{"_id": "wlan-1", "name": "Synthetic WLAN", "security": "wpapsk", "vlan": 20}],
+    "site-a/profiles": [{"_id": "profile-1", "name": "Synthetic Access", "poe_mode": "auto"}],
+    "site-a/alarms": [{"_id": "alarm-1", "message": "Synthetic device disconnected", "severity": "warning"}],
+    "site-a/events": [{"_id": "event-1", "message": "Synthetic adoption event", "category": "admin"}],
+    "site-b/devices": [{"_id": "gw-1", "type": "ugw", "name": "Synthetic Gateway", "mac": "02:00:00:00:00:03", "version": "7.8.9"}],
+    "site-b/clients": [{"_id": "client-reused", "hostname": "active-client.invalid", "mac": "02:00:00:00:20:01", "ip": "198.51.100.20", "connected": true, "last_seen": 1784050000}],
+    "site-b/networks": [],
+    "site-b/wlans": [],
+    "site-b/profiles": [],
+    "site-b/alarms": [],
+    "site-b/events": []
+  },
+  "coverage_issues": [
+    {"site_key": "site-b", "resource": "alarms", "category": "permission_denied", "detail": "controller account cannot read this resource"},
+    {"site_key": "site-b", "resource": "events", "category": "endpoint_omitted", "detail": "controller omitted or does not support this resource"}
+  ]
+}

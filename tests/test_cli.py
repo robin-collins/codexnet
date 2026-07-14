@@ -233,18 +233,26 @@ def test_collect_snmp_repository_failure_is_safe(
 def test_collect_unifi_cli_runs_only_configured_controller(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    config_path, _root = database_config(tmp_path)
+    config_path, root = database_config(tmp_path)
 
     class FakeCollector:
         async def collect(self, _context: object) -> object:
-            return type("Result", (), {"item_count": 2})()
+            issue = type(
+                "Issue",
+                (),
+                {"category": "permission_denied", "detail": "synthetic", "retryable": False},
+            )()
+            return type("Result", (), {"item_count": 2, "issues": (issue,)})()
 
-    monkeypatch.setattr(cli, "UniFiCollector", lambda *_args, **_kwargs: FakeCollector())
+    monkeypatch.setattr(cli, "UniFiInventoryCollector", lambda *_args, **_kwargs: FakeCollector())
     monkeypatch.setattr(cli, "resolve_credentials", lambda *_args, **_kwargs: object())
     code = cli.run(["--json", "--config", str(config_path), "collect", "unifi"], run_id="unifi-run")
     assert code == cli.ExitCode.SUCCESS
     payload = json.loads(capsys.readouterr().out)
-    assert (payload["sites"], payload["failures"]) == (2, 0)
+    assert (payload["entities"], payload["failures"]) == (2, 0)
+    connection = sqlite3.connect(root / "discovery.db")
+    assert connection.execute("SELECT status FROM collector_runs").fetchone()[0] == "partial"
+    connection.close()
 
     code = cli.run(
         [
@@ -270,7 +278,9 @@ def test_collect_unifi_cli_records_safe_controller_and_repository_failures(
         async def collect(self, _context: object) -> object:
             raise cli.UniFiError("synthetic controller refusal")
 
-    monkeypatch.setattr(cli, "UniFiCollector", lambda *_args, **_kwargs: FailingCollector())
+    monkeypatch.setattr(
+        cli, "UniFiInventoryCollector", lambda *_args, **_kwargs: FailingCollector()
+    )
     code = cli.run(["--config", str(config_path), "collect", "unifi"], run_id="unifi-fail")
     assert code == cli.ExitCode.COLLECTOR
     assert "1 failed" in capsys.readouterr().out

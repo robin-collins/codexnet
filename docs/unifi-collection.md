@@ -14,8 +14,16 @@ Command providers receive only the opaque key on standard input, never in argv. 
 controller account. MFA and other interactive authentication flows are reported as unsupported.
 
 The client permits a login POST and allowlisted GET operations only, caps response sizes, pages,
-and item counts, and never persists cookies, CSRF tokens, or credentials. T501 extends normalized
-inventory beyond the initial site read.
+and item counts, and never persists cookies, CSRF tokens, or credentials. Each site is collected
+independently for gateways, switches, access points, clients, networks/VLANs, WLANs, port profiles,
+ports, uplinks/neighbors, firmware, alarms, and events.
+
+Controller IDs are scoped by controller and site before correlation. MACs and serials can join
+matching observations, while reused IDs across sites remain separate. Disconnected or stale
+clients remain historical records marked inactive; they are not presented as current topology.
+Permission-denied and unsupported/omitted endpoints produce explicit coverage limitations while
+other resources continue. Only selected allowlisted fields reach SQLite, and controller entities
+link back to canonical devices through migration 0004.
 
 ```bash
 field-discovery --config /etc/field-discovery/config.yaml collect unifi

@@ -34,7 +34,25 @@ DEFAULT_MAX_PAGES = 25
 DEFAULT_MAX_ITEMS = 5_000
 _KNOWN_PORTS = {443, 8443}
 _KNOWN_MDNS_TYPES = {"_unifi._tcp", "_unifi._tcp.local"}
-_READ_ONLY_RESOURCES = {"sites"}
+_READ_ONLY_RESOURCES = {
+    "sites",
+    "devices",
+    "clients",
+    "networks",
+    "wlans",
+    "profiles",
+    "alarms",
+    "events",
+}
+_RESOURCE_PATHS = {
+    "devices": "stat/device",
+    "clients": "stat/sta",
+    "networks": "rest/networkconf",
+    "wlans": "rest/wlanconf",
+    "profiles": "rest/portconf",
+    "alarms": "stat/alarm",
+    "events": "stat/event",
+}
 
 
 class UniFiError(CollectorError):
@@ -297,12 +315,12 @@ class UniFiClient:
         """GET an allowlisted resource with hard page and item ceilings."""
         if resource not in _READ_ONLY_RESOURCES:
             raise UniFiError("UniFi resource is not on the read-only allowlist")
+        prefix = "/proxy/network" if self.endpoint.api_type == "modern" else ""
         base = (
-            f"/proxy/network/api/self/{resource}"
-            if self.endpoint.api_type == "modern"
-            else f"/api/self/{resource}"
+            f"{prefix}/api/self/sites"
+            if resource == "sites"
+            else f"{prefix}/api/s/{site}/{_RESOURCE_PATHS[resource]}"
         )
-        del site  # reserved for T501 site-scoped allowlisted resources
         items: list[object] = []
         for page in range(self.max_pages):
             query = urlencode({"_start": page * self.page_size, "_limit": self.page_size})
@@ -379,8 +397,18 @@ class UniFiClient:
         return "; ".join(f"{key}={morsel.value}" for key, morsel in sorted(cookie.items())) or None
 
 
+class ControllerClient(Protocol):
+    async def login(  # pragma: no cover - structural typing declaration
+        self, credentials: UniFiCredentials
+    ) -> None: ...
+
+    async def get_pages(  # pragma: no cover - structural typing declaration
+        self, resource: str, *, site: str = "default"
+    ) -> tuple[object, ...]: ...
+
+
 CredentialLoader = Callable[[CredentialReference], UniFiCredentials]
-ClientFactory = Callable[[UniFiEndpoint], UniFiClient]
+ClientFactory = Callable[[UniFiEndpoint], ControllerClient]
 
 
 @dataclass

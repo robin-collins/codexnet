@@ -40,11 +40,11 @@ from field_discovery.ssh_collection import (
 )
 from field_discovery.subnet import SubnetResolutionError, resolve_subnet
 from field_discovery.unifi import (
-    UniFiCollector,
     UniFiError,
     endpoint_from_config,
     resolve_credentials,
 )
+from field_discovery.unifi_inventory import UniFiInventoryCollector, persist_inventory
 
 DEFAULT_CONFIG = Path("/etc/field-discovery/config.yaml")
 
@@ -383,11 +383,15 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
                 try:
                     if reference is None:
                         raise UniFiError("UniFi collection requires a credential reference")
-                    collector = UniFiCollector(
+                    collector = UniFiInventoryCollector(
                         endpoint,
                         lambda requested: resolve_credentials(
                             requested, configuration.data["secret_providers"]
                         ),
+                        lambda inventory: persist_inventory(
+                            unifi_repository, deployment_id, inventory
+                        ),
+                        timestamp,
                     )
                     unifi_result = asyncio.run(
                         collector.collect(
@@ -399,9 +403,18 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
                         )
                     )
                     total += unifi_result.item_count
+                    for issue in unifi_result.issues:
+                        unifi_repository.record_collector_error(
+                            unifi_run,
+                            category=issue.category,
+                            detail=issue.detail,
+                            retryable=issue.retryable,
+                            source="unifi",
+                            observed_at=datetime.now(UTC).isoformat(),
+                        )
                     unifi_repository.finish_run(
                         unifi_run,
-                        "succeeded",
+                        "partial" if unifi_result.issues else "succeeded",
                         datetime.now(UTC).isoformat(),
                         unifi_result.item_count,
                     )
@@ -423,8 +436,11 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
                 {
                     "ok": ok,
                     "command": command,
-                    "message": f"UniFi collection: {total} sites, {failures} failed controllers.",
-                    "sites": total,
+                    "message": (
+                        f"UniFi collection: {total} normalized entities, "
+                        f"{failures} failed controllers."
+                    ),
+                    "entities": total,
                     "failures": failures,
                 },
                 json_mode=arguments.json_mode,

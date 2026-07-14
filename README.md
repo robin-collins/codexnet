@@ -109,7 +109,9 @@ Legacy SNMPv2c requires an explicit insecure-protocol opt-in and produces a secu
 
 Configured UniFi OS and legacy controllers can be queried with `collect unifi`. Detection uses
 existing evidence only, controller TLS verification is strict by default, and API reads are
-bounded and allowlisted. See [docs/unifi-collection.md](docs/unifi-collection.md).
+bounded and allowlisted. Inventory, topology, firmware, alarms, events, stale-client state, and
+per-resource coverage limitations are normalized into historical canonical records. See
+[docs/unifi-collection.md](docs/unifi-collection.md).
 
 Authorised Cisco IOS, HP/HPE Comware, and ArubaOS-Switch targets can be queried through the
 read-only SSH adapter. The command requires both an approved IPv4 target and an explicit platform;

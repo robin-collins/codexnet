@@ -264,7 +264,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** mocked modern/legacy login, self-signed opt-in, invalid certificate, MFA/unsupported auth, pagination, timeout, and authorization failure tests pass.
 - **Balance:** never probe credentials automatically; never disable TLS verification globally; redact cookies/tokens and response secrets.
 
-### [ ] T501 Normalize UniFi inventory and topology
+### [x] T501 Normalize UniFi inventory and topology
 
 - **Depends on:** T103, T500
 - **Deliver:** sites, gateways, switches, APs, clients, networks/VLANs, WLANs, profiles, ports, neighbors, firmware, alarms, and events mapped to canonical records.

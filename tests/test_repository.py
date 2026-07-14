@@ -350,7 +350,7 @@ def test_sanitized_export_is_deterministic_restrictive_and_confined(tmp_path: Pa
     content = first.read_text()
     assert "synthetic-secret" not in content
     assert REDACTED in content
-    assert json.loads(content)["schema_version"] == 3
+    assert json.loads(content)["schema_version"] == 4
     with pytest.raises(UnsafeRepositoryPath, match="new regular file"):
         repository.export_sanitized_json(first)
     outside = tmp_path / "outside.json"
