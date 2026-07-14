@@ -192,7 +192,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** MAC movement, IP reuse, incomplete neighbor, duplicate event, and expiry tests pass without incorrect device merges.
 - **Balance:** passive service does not perform unsolicited ARP sweeps.
 
-### [ ] T305 Build topology inference and diagrams
+### [x] T305 Build topology inference and diagrams
 
 - **Depends on:** T103, T301, T302, T303, T304
 - **Deliver:** provenance/confidence-aware edges, VLAN/subnet relationships, Mermaid/Graphviz source, and rendered diagrams.

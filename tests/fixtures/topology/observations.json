@@ -1,0 +1,14 @@
+[
+  {"kind":"link_layer_neighbor","source":"passive:lldp","observed_at":"2026-07-15T02:00:00Z","fields":{"chassis_id":"00:aa:bb:cc:dd:ee","chassis_id_subtype":"mac_address","port_id":"1/1/1","system_name":"core-switch","vlan_id":10}},
+  {"kind":"link_layer_neighbor","source":"passive:cdp","observed_at":"2026-07-15T02:01:00Z","fields":{"chassis_id":"00:aa:bb:cc:dd:ee","chassis_id_subtype":"mac_address","port_id":"GigabitEthernet1","system_name":"CORE-SWITCH","vlan_id":20}},
+  {"kind":"link_layer_neighbor","source":"synthetic:incomplete","observed_at":"2026-07-15T02:02:00Z","fields":{"port_id":"unknown"}},
+  {"kind":"mdns_service","source":"mdns","observed_at":"2026-07-15T02:03:00Z","fields":{"service_type":"_printer._tcp.local","instance":"Office Printer._printer._tcp.local","action":"announce"}},
+  {"kind":"mdns_instance","source":"mdns","observed_at":"2026-07-15T02:03:01Z","fields":{"instance":"Office Printer._printer._tcp.local","hostname":"printer.local","port":631,"action":"announce"}},
+  {"kind":"mdns_address","source":"mdns","observed_at":"2026-07-15T02:03:02Z","fields":{"hostname":"printer.local","address":"192.168.50.30","action":"announce"}},
+  {"kind":"mdns_address","source":"mdns","observed_at":"2026-07-15T02:03:03Z","fields":{"hostname":"gone.local","address":"192.168.50.99","action":"goodbye"}},
+  {"kind":"dhcp_message","source":"passive.dhcp","observed_at":"2026-07-15T02:04:00Z","fields":{"message_type":"ack","client_mac":"00:11:22:33:44:55","assigned_address":"192.168.50.20","server_identifier":"192.168.50.1","hostname":"workstation"}},
+  {"kind":"dhcp_message","source":"passive.dhcp","observed_at":"2026-07-15T02:04:01Z","fields":{"message_type":"offer","client_mac":"00:11:22:33:44:66","assigned_address":"192.168.50.21"}},
+  {"kind":"neighbor_observation","source":"kernel.neighbor","observed_at":"2026-07-15T02:05:00Z","fields":{"address":"192.168.50.20","mac_address":"00:11:22:33:44:55","interface":"eth0","state":"reachable"}},
+  {"kind":"neighbor_observation","source":"kernel.neighbor","observed_at":"2026-07-15T02:05:01Z","fields":{"address":"192.168.50.40","mac_address":null,"interface":"eth0","state":"incomplete"}},
+  {"kind":"neighbor_ip_reuse","source":"kernel.neighbor","observed_at":"2026-07-15T02:06:00Z","fields":{"address":"192.168.50.20","previous_macs":["00:11:22:33:44:55"],"current_mac":"00:11:22:33:44:77"}}
+]
