@@ -97,7 +97,15 @@ _DEFAULTS: dict[str, Any] = {
         },
     },
     "secret_providers": {},
-    "report": {"confidentiality": "Confidential", "template": None},
+    "report": {
+        "confidentiality": "Confidential",
+        "template": None,
+        "customer_name": None,
+        "site_name": None,
+        "author": None,
+        "company_name": "CodexNet",
+        "document_version": "1.0",
+    },
     "retention": {"detailed_days": 30, "diagnostic_capture_hours": 24},
 }
 
@@ -139,7 +147,15 @@ _ALLOWED: dict[str, set[str]] = {
         "credential_ref",
     },
     "collectors.ssh": {"enabled", "host_key_policy", "credential_ref"},
-    "report": {"confidentiality", "template"},
+    "report": {
+        "confidentiality",
+        "template",
+        "customer_name",
+        "site_name",
+        "author",
+        "company_name",
+        "document_version",
+    },
     "retention": {"detailed_days", "diagnostic_capture_hours"},
 }
 
@@ -323,6 +339,14 @@ def _validate_types(config: dict[str, Any]) -> None:
         not isinstance(report["template"], str) or not Path(report["template"]).is_absolute()
     ):
         raise ConfigurationError("report.template must be null or an absolute path")
+    for key in ("customer_name", "site_name", "author"):
+        value = report[key]
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ConfigurationError(f"report.{key} must be null or a non-empty string")
+    for key in ("company_name", "document_version"):
+        value = report[key]
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigurationError(f"report.{key} must be a non-empty string")
     retention = config["retention"]
     _integer(retention["detailed_days"], "retention.detailed_days", 1, 365)
     _integer(retention["diagnostic_capture_hours"], "retention.diagnostic_capture_hours", 1, 168)

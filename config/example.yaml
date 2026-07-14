@@ -79,7 +79,14 @@ collectors:
       key: SSH_SITE_PROFILE
 
 report:
+  # Customer-facing values are required before `report generate`; they are never inferred.
+  customer_name: Example Customer
+  site_name: Adelaide Office
+  author: Example Technician
+  company_name: Example MSP
+  document_version: "1.0"
   confidentiality: Confidential
+  # Optional self-contained DOCX whose styles are used after safety validation.
   template: null
 
 retention:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import os
 import re
@@ -30,6 +31,9 @@ _DCTERMS = "http://purl.org/dc/terms/"
 _XSI = "http://www.w3.org/2001/XMLSchema-instance"
 _REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 _CONTENT = "http://schemas.openxmlformats.org/package/2006/content-types"
+_WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+_PIC = "http://schemas.openxmlformats.org/drawingml/2006/picture"
 _FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 _MAX_DOCX_ENTRIES = 64
 _MAX_DOCX_UNCOMPRESSED = 32 * 1024 * 1024
@@ -46,6 +50,9 @@ ET.register_namespace("cp", _CP)
 ET.register_namespace("dc", _DC)
 ET.register_namespace("dcterms", _DCTERMS)
 ET.register_namespace("xsi", _XSI)
+ET.register_namespace("wp", _WP)
+ET.register_namespace("a", _A)
+ET.register_namespace("pic", _PIC)
 
 
 class ReportError(RuntimeError):
@@ -101,6 +108,10 @@ def build_report_model(
     generated_at: datetime,
     confidentiality: str = "Confidential",
     document_version: str = "1.0",
+    customer_name: str = "Not supplied",
+    site_name: str = "Not supplied",
+    author: str = "Not supplied",
+    company_name: str = "CodexNet",
 ) -> dict[str, Any]:
     """Build a source/age/confidence-aware deterministic report dictionary."""
     if generated_at.tzinfo is None or generated_at.utcoffset() is None:
@@ -108,6 +119,15 @@ def build_report_model(
     generated = generated_at.astimezone(UTC)
     if not _SAFE_DOCUMENT_VERSION.fullmatch(document_version):
         raise ReportError("document version is invalid")
+    metadata_values = {
+        "confidentiality": confidentiality,
+        "customer_name": customer_name,
+        "site_name": site_name,
+        "author": author,
+        "company_name": company_name,
+    }
+    if any(not isinstance(value, str) or not value.strip() for value in metadata_values.values()):
+        raise ReportError("report metadata values must be non-empty strings")
     deployment = repository.connection.execute(
         "SELECT * FROM deployments WHERE id = ?", (deployment_id,)
     ).fetchone()
@@ -228,6 +248,10 @@ def build_report_model(
             "document_version": document_version,
             "confidentiality": confidentiality,
             "generated_at": generated.isoformat(),
+            "customer_name": customer_name,
+            "site_name": site_name,
+            "author": author,
+            "company_name": company_name,
         },
         "deployment": {
             "site_key": str(deployment["site_key"]),
@@ -320,19 +344,197 @@ def _paragraph(text: object, style: str | None = None) -> ET.Element:
     return paragraph
 
 
+def _field_paragraph(instruction: str, placeholder: str) -> ET.Element:
+    paragraph = _element("p")
+    field = _element("fldSimple", instr=instruction)
+    run = _element("r")
+    value = _element("t", placeholder)
+    run.append(value)
+    field.append(run)
+    paragraph.append(field)
+    return paragraph
+
+
+def _page_break() -> ET.Element:
+    paragraph = _element("p")
+    run = _element("r")
+    run.append(_element("br", type="page"))
+    paragraph.append(run)
+    return paragraph
+
+
 def _table(headers: tuple[str, ...], rows: list[tuple[object, ...]]) -> ET.Element:
     table = _element("tbl")
     properties = _element("tblPr")
     properties.append(_element("tblStyle", val="TableGrid"))
     table.append(properties)
-    for values in [headers, *rows]:
+    for row_index, values in enumerate([headers, *rows]):
         row = _element("tr")
+        row_properties = _element("trPr")
+        row_properties.append(_element("cantSplit"))
+        if row_index == 0:
+            row_properties.append(_element("tblHeader", val="1"))
+        row.append(row_properties)
         for value in values:
             cell = _element("tc")
             cell.append(_paragraph(value if value not in {None, ""} else "—"))
             row.append(cell)
         table.append(row)
     return table
+
+
+def _section_properties(*, landscape: bool = False) -> ET.Element:
+    section = _element("sectPr")
+    header = _element("headerReference", type="default")
+    header.set(f"{{{_R}}}id", "rId4")
+    section.append(header)
+    footer = _element("footerReference", type="default")
+    footer.set(f"{{{_R}}}id", "rId5")
+    section.append(footer)
+    if landscape:
+        section.append(_element("pgSz", w="15840", h="12240", orient="landscape"))
+    else:
+        section.append(_element("pgSz", w="12240", h="15840"))
+    section.append(_element("pgMar", top="1080", right="720", bottom="1080", left="720"))
+    return section
+
+
+def _section_break(*, landscape: bool) -> ET.Element:
+    paragraph = _element("p")
+    properties = _element("pPr")
+    properties.append(_section_properties(landscape=landscape))
+    paragraph.append(properties)
+    return paragraph
+
+
+def _image_paragraph(relationship_id: str, name: str, identifier: int) -> ET.Element:
+    width, height = 8_900_000, 5_200_000
+    paragraph = _element("p")
+    run = _element("r")
+    drawing = _element("drawing")
+    inline = ET.Element(
+        f"{{{_WP}}}inline", {"distT": "0", "distB": "0", "distL": "0", "distR": "0"}
+    )
+    ET.SubElement(inline, f"{{{_WP}}}extent", {"cx": str(width), "cy": str(height)})
+    ET.SubElement(inline, f"{{{_WP}}}docPr", {"id": str(identifier), "name": name})
+    graphic = ET.SubElement(inline, f"{{{_A}}}graphic")
+    graphic_data = ET.SubElement(
+        graphic,
+        f"{{{_A}}}graphicData",
+        {"uri": "http://schemas.openxmlformats.org/drawingml/2006/picture"},
+    )
+    picture = ET.SubElement(graphic_data, f"{{{_PIC}}}pic")
+    non_visual = ET.SubElement(picture, f"{{{_PIC}}}nvPicPr")
+    ET.SubElement(non_visual, f"{{{_PIC}}}cNvPr", {"id": "0", "name": name})
+    ET.SubElement(non_visual, f"{{{_PIC}}}cNvPicPr")
+    fill = ET.SubElement(picture, f"{{{_PIC}}}blipFill")
+    ET.SubElement(fill, f"{{{_A}}}blip", {f"{{{_R}}}embed": relationship_id})
+    stretch = ET.SubElement(fill, f"{{{_A}}}stretch")
+    ET.SubElement(stretch, f"{{{_A}}}fillRect")
+    shape = ET.SubElement(picture, f"{{{_PIC}}}spPr")
+    transform = ET.SubElement(shape, f"{{{_A}}}xfrm")
+    ET.SubElement(transform, f"{{{_A}}}off", {"x": "0", "y": "0"})
+    ET.SubElement(transform, f"{{{_A}}}ext", {"cx": str(width), "cy": str(height)})
+    geometry = ET.SubElement(shape, f"{{{_A}}}prstGeom", {"prst": "rect"})
+    ET.SubElement(geometry, f"{{{_A}}}avLst")
+    drawing.append(inline)
+    run.append(drawing)
+    paragraph.append(run)
+    return paragraph
+
+
+def _svg(title: str, nodes: list[str], edges: list[str]) -> bytes:
+    visible_nodes = nodes[:24]
+    visible_edges = edges[:18]
+    lines = [*visible_nodes, *visible_edges]
+    if len(nodes) > len(visible_nodes) or len(edges) > len(visible_edges):
+        lines.append(
+            f"Additional entries omitted: {len(nodes) - len(visible_nodes)} nodes, "
+            f"{len(edges) - len(visible_edges)} relationships"
+        )
+    if not lines:
+        lines = ["No supported evidence was available for this diagram."]
+    height = max(360, 150 + len(lines) * 42)
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="{height}" '
+        'viewBox="0 0 1200 {0}">'.format(height),
+        '<rect width="1200" height="100%" fill="#ffffff"/>',
+        f'<text x="40" y="55" font-family="Arial, sans-serif" font-size="30" '
+        f'font-weight="bold" fill="#17365d">{html.escape(title)}</text>',
+    ]
+    for index, line in enumerate(lines):
+        y = 100 + index * 42
+        fill = "#d9eaf7" if index < len(visible_nodes) else "#eaf2df"
+        parts.append(
+            f'<rect x="40" y="{y - 27}" width="1120" height="34" rx="6" '
+            f'fill="{fill}" stroke="#5b7188"/>'
+        )
+        parts.append(
+            f'<text x="55" y="{y - 4}" font-family="Arial, sans-serif" font-size="17" '
+            f'fill="#1f1f1f">{html.escape(line)}</text>'
+        )
+    parts.append("</svg>")
+    return "".join(parts).encode("utf-8")
+
+
+def _diagram_assets(model: dict[str, Any]) -> tuple[tuple[str, str, bytes], ...]:
+    infrastructure = model["infrastructure"]
+    platforms = model["platforms"]
+    device_nodes = [f"Device: {item['canonical_key']}" for item in model["devices"]]
+    neighbor_edges = [
+        f"{item['device_key'] or item['target']} — {item['key']} (source-labelled evidence)"
+        for item in infrastructure["neighbors"]
+    ]
+    vlan_nodes = [
+        f"VLAN {item['key']} on {item['device_key'] or item['target']}"
+        for item in infrastructure["vlans"]
+    ]
+    address_nodes = [
+        f"{device['canonical_key']}: {alias['value']}"
+        for device in model["devices"]
+        for alias in device["aliases"]
+        if alias["kind"] == "ipv4"
+    ]
+    port_nodes = [
+        f"{item['device_key'] or item['target']} port {item['key']}"
+        for item in infrastructure["switch_ports"]
+    ]
+
+    def platform_lines(key: str) -> tuple[list[str], list[str]]:
+        diagram = platforms[key]["diagram"]
+        labels = {node["id"]: node["label"] for node in diagram["nodes"]}
+        nodes = [
+            f"{node['kind']}: {node['label']} · {node['source']} · age {node['age_days']}d"
+            for node in diagram["nodes"]
+        ]
+        edges = [
+            f"{labels.get(edge['from'], edge['from'])} → {edge['kind']} → "
+            f"{labels.get(edge['to'], edge['to'])} · {edge['source']}"
+            for edge in diagram["edges"]
+        ]
+        return nodes, edges
+
+    unifi_nodes, unifi_edges = platform_lines("unifi")
+    ad_nodes, ad_edges = platform_lines("active_directory")
+    return (
+        (
+            "network-topology.svg",
+            "Network topology",
+            _svg("Network topology", device_nodes, neighbor_edges),
+        ),
+        (
+            "vlan-subnet.svg",
+            "VLAN and subnet relationships",
+            _svg("VLAN and subnet relationships", vlan_nodes, address_nodes),
+        ),
+        ("switch-port-map.svg", "Switch port map", _svg("Switch port map", port_nodes, [])),
+        ("unifi-topology.svg", "UniFi topology", _svg("UniFi topology", unifi_nodes, unifi_edges)),
+        (
+            "active-directory.svg",
+            "Active Directory domains, sites, subnets, controllers and trusts",
+            _svg("Active Directory structure", ad_nodes, ad_edges),
+        ),
+    )
 
 
 def _document_xml(model: dict[str, Any]) -> bytes:
@@ -342,9 +544,32 @@ def _document_xml(model: dict[str, Any]) -> bytes:
     metadata = model["document"]
     deployment = model["deployment"]
     body.append(_paragraph(metadata["title"], "Title"))
-    body.append(_paragraph(deployment["display_name"], "Subtitle"))
-    body.append(_paragraph(metadata["confidentiality"]))
-    body.append(_paragraph(f"Generated: {metadata['generated_at']}"))
+    body.append(_paragraph(f"{metadata['customer_name']} — {metadata['site_name']}", "Subtitle"))
+    body.append(
+        _table(
+            ("Document metadata", "Value"),
+            [
+                ("Customer", metadata["customer_name"]),
+                ("Site", metadata["site_name"]),
+                ("Assessment start", deployment["assessment_started_at"]),
+                ("Assessment end", deployment["assessment_ended_at"] or "In progress"),
+                ("Author", metadata["author"]),
+                ("Company", metadata["company_name"]),
+                ("Document version", metadata["document_version"]),
+                ("Confidentiality", metadata["confidentiality"]),
+                ("Generated", metadata["generated_at"]),
+            ],
+        )
+    )
+    body.append(_page_break())
+    body.append(_paragraph("Table of contents", "Heading1"))
+    body.append(
+        _field_paragraph(
+            'TOC \\o "1-3" \\h \\z \\u',
+            "Update this field in Word or LibreOffice to refresh the table of contents.",
+        )
+    )
+    body.append(_page_break())
     body.append(_paragraph("Executive summary", "Heading1"))
     summary = model["summary"]
     body.append(
@@ -353,6 +578,11 @@ def _document_xml(model: dict[str, Any]) -> bytes:
             f"The report discloses {summary['conflict_count']} conflicts."
         )
     )
+    body.append(_paragraph("Embedded diagrams", "Heading1"))
+    for image_index, (_filename, title, _payload) in enumerate(_diagram_assets(model), start=1):
+        body.append(_paragraph(title, "Heading2"))
+        body.append(_image_paragraph(f"rId{image_index + 5}", title, image_index))
+    body.append(_section_break(landscape=False))
     infrastructure = model["infrastructure"]
     section_titles = (
         ("switch_ports", "Switch port maps"),
@@ -404,6 +634,7 @@ def _document_xml(model: dict[str, Any]) -> bytes:
         body.append(_paragraph(json.dumps(issue, sort_keys=True, ensure_ascii=False)))
     for limitation in infrastructure["limitations"]:
         body.append(_paragraph(f"• {limitation}"))
+    body.append(_section_break(landscape=True))
     platforms = model["platforms"]
     for platform_key, title in (
         ("unifi", "UniFi topology and inventory"),
@@ -487,6 +718,7 @@ def _document_xml(model: dict[str, Any]) -> bytes:
                     ],
                 )
             )
+    body.append(_section_break(landscape=False))
     body.append(_paragraph("Collection coverage", "Heading1"))
     body.append(
         _table(
@@ -573,6 +805,7 @@ def _document_xml(model: dict[str, Any]) -> bytes:
             service_rows,
         )
     )
+    body.append(_section_break(landscape=True))
     body.append(_paragraph("Conflicts and data quality", "Heading1"))
     if model["conflicts"]:
         for conflict in model["conflicts"]:
@@ -582,37 +815,184 @@ def _document_xml(model: dict[str, Any]) -> bytes:
     body.append(_paragraph("Limitations", "Heading1"))
     for limitation in model["limitations"]:
         body.append(_paragraph(f"• {limitation}"))
-    section = _element("sectPr")
-    section.append(_element("pgSz", w="12240", h="15840"))
-    section.append(_element("pgMar", top="1440", right="1080", bottom="1440", left="1080"))
-    body.append(section)
+    body.append(_section_properties(landscape=False))
     return cast(bytes, ET.tostring(document, encoding="utf-8", xml_declaration=True))
 
 
 def _core_xml(model: dict[str, Any]) -> bytes:
     root = ET.Element(f"{{{_CP}}}coreProperties")
+    metadata = model["document"]
     values = (
-        (_DC, "title", model["document"]["title"]),
+        (
+            _DC,
+            "title",
+            f"{metadata['customer_name']} — {metadata['site_name']} — {metadata['title']}",
+        ),
         (_DC, "subject", "Authorised network discovery inventory"),
-        (_DC, "creator", "CodexNet"),
-        (_CP, "lastModifiedBy", "CodexNet"),
-        (_CP, "revision", model["document"]["document_version"]),
+        (_DC, "creator", metadata["author"]),
+        (_CP, "lastModifiedBy", metadata["company_name"]),
+        (_CP, "revision", metadata["document_version"]),
     )
     for namespace, tag, value in values:
         ET.SubElement(root, f"{{{namespace}}}{tag}").text = str(value)
     for tag in ("created", "modified"):
         node = ET.SubElement(root, f"{{{_DCTERMS}}}{tag}")
         node.set(f"{{{_XSI}}}type", "dcterms:W3CDTF")
-        node.text = str(model["document"]["generated_at"])
-    ET.SubElement(root, f"{{{_CP}}}keywords").text = str(model["document"]["confidentiality"])
+        node.text = str(metadata["generated_at"])
+    ET.SubElement(root, f"{{{_CP}}}keywords").text = str(metadata["confidentiality"])
     return cast(bytes, ET.tostring(root, encoding="utf-8", xml_declaration=True))
 
 
-def _package_parts(model: dict[str, Any]) -> dict[str, bytes]:
+def _serialize(element: ET.Element) -> bytes:
+    return cast(bytes, ET.tostring(element, encoding="utf-8", xml_declaration=True))
+
+
+def _template_styles(template_path: Path | None) -> ET.Element:
+    if template_path is None:
+        return _element("styles")
+    try:
+        info = template_path.lstat()
+        if (
+            template_path.suffix.casefold() != ".docx"
+            or stat.S_ISLNK(info.st_mode)
+            or not stat.S_ISREG(info.st_mode)
+        ):
+            raise ReportError("report template must be a regular non-symlink DOCX")
+        archive = zipfile.ZipFile(template_path)
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise ReportError("report template is not a readable DOCX") from exc
+    try:
+        infos = archive.infolist()
+        if (
+            len(infos) > _MAX_DOCX_ENTRIES
+            or len({item.filename for item in infos}) != len(infos)
+            or sum(item.file_size for item in infos) > _MAX_DOCX_UNCOMPRESSED
+        ):
+            raise ReportError("report template exceeds safety bounds")
+        for item in infos:
+            if item.file_size > _MAX_DOCX_ENTRY:
+                raise ReportError("report template entry exceeds safety bounds")
+            if item.filename.endswith(".rels"):
+                relationships = ET.fromstring(archive.read(item))
+                if any(
+                    relation.get("TargetMode", "").casefold() == "external"
+                    for relation in relationships
+                ):
+                    raise ReportError("report template contains external relationships")
+        payload = archive.read("word/styles.xml")
+    except KeyError as exc:
+        raise ReportError("report template has no Word styles part") from exc
+    except ET.ParseError as exc:
+        raise ReportError("report template contains malformed relationships") from exc
+    finally:
+        archive.close()
+    if b"<!DOCTYPE" in payload.upper() or b"<!ENTITY" in payload.upper():
+        raise ReportError("report template styles failed security scan")
+    try:
+        styles = ET.fromstring(payload)
+    except ET.ParseError as exc:
+        raise ReportError("report template styles are malformed") from exc
+    if styles.tag != f"{{{_W}}}styles":
+        raise ReportError("report template styles root is invalid")
+    return styles
+
+
+def _styles_xml(template_path: Path | None) -> bytes:
+    styles_root = _template_styles(template_path)
+    existing = {
+        style.get(f"{{{_W}}}styleId"): style for style in styles_root.findall(f"{{{_W}}}style")
+    }
+    style_specs = (
+        ("paragraph", "Normal", "Normal", True, False, None),
+        ("paragraph", "Title", "Title", False, True, None),
+        ("paragraph", "Subtitle", "Subtitle", False, False, None),
+        ("paragraph", "Heading1", "heading 1", False, True, 0),
+        ("paragraph", "Heading2", "heading 2", False, True, 1),
+        ("table", "TableGrid", "Table Grid", False, False, None),
+    )
+    for style_type, style_id, name, default, quick, level in style_specs:
+        style = existing.get(style_id)
+        if style is None:
+            attributes = {"type": style_type, "styleId": style_id}
+            if default:
+                attributes["default"] = "1"
+            style = _element("style", **attributes)
+            style.append(_element("name", val=name))
+            if style_id not in {"Normal", "TableGrid"}:
+                style.append(_element("basedOn", val="Normal"))
+            styles_root.append(style)
+        if level is not None:
+            existing_properties = style.find(f"{{{_W}}}pPr")
+            if existing_properties is not None:
+                style.remove(existing_properties)
+            properties = _element("pPr")
+            numbering = _element("numPr")
+            numbering.append(_element("ilvl", val=str(level)))
+            numbering.append(_element("numId", val="1"))
+            properties.append(numbering)
+            style.append(properties)
+        if quick and style.find(f"{{{_W}}}qFormat") is None:
+            style.append(_element("qFormat"))
+    return _serialize(styles_root)
+
+
+def _numbering_xml() -> bytes:
+    root = _element("numbering")
+    abstract = _element("abstractNum", abstractNumId="1")
+    for level, text in ((0, "%1."), (1, "%1.%2."), (2, "%1.%2.%3.")):
+        item = _element("lvl", ilvl=str(level))
+        item.append(_element("start", val="1"))
+        item.append(_element("numFmt", val="decimal"))
+        item.append(_element("lvlText", val=text))
+        item.append(_element("suff", val="space"))
+        abstract.append(item)
+    root.append(abstract)
+    number = _element("num", numId="1")
+    number.append(_element("abstractNumId", val="1"))
+    root.append(number)
+    return _serialize(root)
+
+
+def _header_xml(model: dict[str, Any]) -> bytes:
+    root = _element("hdr")
+    metadata = model["document"]
+    root.append(
+        _paragraph(
+            f"{metadata['company_name']} | {metadata['customer_name']} | {metadata['site_name']}"
+        )
+    )
+    return _serialize(root)
+
+
+def _footer_xml(model: dict[str, Any]) -> bytes:
+    root = _element("ftr")
+    paragraph = _paragraph(f"{model['document']['confidentiality']} | Page ")
+    page = _element("fldSimple", instr="PAGE")
+    page.append(_element("r"))
+    paragraph.append(page)
+    between = _element("r")
+    between.append(_element("t", " of "))
+    paragraph.append(between)
+    pages = _element("fldSimple", instr="NUMPAGES")
+    pages.append(_element("r"))
+    paragraph.append(pages)
+    root.append(paragraph)
+    return _serialize(root)
+
+
+def _settings_xml() -> bytes:
+    root = _element("settings")
+    root.append(_element("updateFields", val="true"))
+    root.append(_element("evenAndOddHeaders", val="false"))
+    return _serialize(root)
+
+
+def _package_parts(model: dict[str, Any], *, template_path: Path | None = None) -> dict[str, bytes]:
     types = ET.Element(f"{{{_CONTENT}}}Types")
     defaults = (
         ("rels", "application/vnd.openxmlformats-package.relationships+xml"),
         ("xml", "application/xml"),
+        ("svg", "image/svg+xml"),
     )
     for extension, content_type in defaults:
         ET.SubElement(
@@ -628,6 +1008,22 @@ def _package_parts(model: dict[str, Any]) -> dict[str, bytes]:
         (
             "/word/styles.xml",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml",
+        ),
+        (
+            "/word/numbering.xml",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml",
+        ),
+        (
+            "/word/settings.xml",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml",
+        ),
+        (
+            "/word/header1.xml",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml",
+        ),
+        (
+            "/word/footer1.xml",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml",
         ),
         ("/docProps/core.xml", "application/vnd.openxmlformats-package.core-properties+xml"),
         (
@@ -676,54 +1072,75 @@ def _package_parts(model: dict[str, Any]) -> dict[str, bytes]:
             "Target": "styles.xml",
         },
     )
-
-    styles_root = _element("styles")
-    style_specs = (
-        ("paragraph", "Normal", "Normal", True, False),
-        ("paragraph", "Title", "Title", False, True),
-        ("paragraph", "Subtitle", "Subtitle", False, False),
-        ("paragraph", "Heading1", "heading 1", False, True),
-        ("paragraph", "Heading2", "heading 2", False, True),
-        ("table", "TableGrid", "Table Grid", False, False),
-    )
-    for style_type, style_id, name, default, quick in style_specs:
-        attributes = {"type": style_type, "styleId": style_id}
-        if default:
-            attributes["default"] = "1"
-        style = _element("style", **attributes)
-        style.append(_element("name", val=name))
-        if style_id not in {"Normal", "TableGrid"}:
-            style.append(_element("basedOn", val="Normal"))
-        if quick:
-            style.append(_element("qFormat"))
-        styles_root.append(style)
+    for identifier, relationship_type, target in (
+        (
+            "rId2",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering",
+            "numbering.xml",
+        ),
+        (
+            "rId3",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings",
+            "settings.xml",
+        ),
+        (
+            "rId4",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header",
+            "header1.xml",
+        ),
+        (
+            "rId5",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer",
+            "footer1.xml",
+        ),
+    ):
+        ET.SubElement(
+            document_relationships,
+            f"{{{_REL}}}Relationship",
+            {"Id": identifier, "Type": relationship_type, "Target": target},
+        )
+    diagrams = _diagram_assets(model)
+    for index, (filename, _title, _payload) in enumerate(diagrams, start=6):
+        ET.SubElement(
+            document_relationships,
+            f"{{{_REL}}}Relationship",
+            {
+                "Id": f"rId{index}",
+                "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
+                "Target": f"media/{filename}",
+            },
+        )
 
     app_namespace = "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
     app_root = ET.Element(f"{{{app_namespace}}}Properties")
     ET.SubElement(app_root, f"{{{app_namespace}}}Application").text = "CodexNet"
     ET.SubElement(app_root, f"{{{app_namespace}}}AppVersion").text = "1.0"
 
-    def serialize(element: ET.Element) -> bytes:
-        return cast(bytes, ET.tostring(element, encoding="utf-8", xml_declaration=True))
-
-    return {
-        "[Content_Types].xml": serialize(types),
-        "_rels/.rels": serialize(relationships),
-        "docProps/app.xml": serialize(app_root),
+    parts = {
+        "[Content_Types].xml": _serialize(types),
+        "_rels/.rels": _serialize(relationships),
+        "docProps/app.xml": _serialize(app_root),
         "docProps/core.xml": _core_xml(model),
-        "word/_rels/document.xml.rels": serialize(document_relationships),
+        "word/_rels/document.xml.rels": _serialize(document_relationships),
         "word/document.xml": _document_xml(model),
-        "word/styles.xml": serialize(styles_root),
+        "word/styles.xml": _styles_xml(template_path),
+        "word/numbering.xml": _numbering_xml(),
+        "word/settings.xml": _settings_xml(),
+        "word/header1.xml": _header_xml(model),
+        "word/footer1.xml": _footer_xml(model),
     }
+    for filename, _title, payload in diagrams:
+        parts[f"word/media/{filename}"] = payload
+    return parts
 
 
-def deterministic_docx(model: dict[str, Any]) -> bytes:
+def deterministic_docx(model: dict[str, Any], *, template_path: Path | None = None) -> bytes:
     """Create a deterministic, self-contained WordprocessingML package."""
     import io
 
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-        for name, payload in sorted(_package_parts(model).items()):
+        for name, payload in sorted(_package_parts(model, template_path=template_path).items()):
             info = zipfile.ZipInfo(name, date_time=_FIXED_ZIP_TIME)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o600 << 16
@@ -765,8 +1182,13 @@ def generate_reports(
     output_root: Path,
     *,
     generated_at: datetime,
+    customer_name: str = "Not supplied",
+    site_name: str = "Not supplied",
+    author: str = "Not supplied",
+    company_name: str = "CodexNet",
     confidentiality: str = "Confidential",
     document_version: str = "1.0",
+    template_path: Path | None = None,
 ) -> ReportOutputs:
     """Generate, validate, publish, and record paired DOCX/JSON reports."""
     model = build_report_model(
@@ -775,11 +1197,15 @@ def generate_reports(
         generated_at=generated_at,
         confidentiality=confidentiality,
         document_version=document_version,
+        customer_name=customer_name,
+        site_name=site_name,
+        author=author,
+        company_name=company_name,
     )
     json_payload = deterministic_json(model)
-    docx_payload = deterministic_docx(model)
+    docx_payload = deterministic_docx(model, template_path=template_path)
     _safe_output_root(output_root)
-    label = f"{model['deployment']['display_name']}-Network-Discovery-{generated_at:%Y%m%d-%H%M%S}"
+    label = f"{customer_name}-{site_name}-Network-Discovery-{generated_at:%Y%m%d}"
     basename = safe_filename(label, redactor=repository.redactor)
     docx_path = output_root / f"{basename}.docx"
     json_path = output_root / f"{basename}.json"

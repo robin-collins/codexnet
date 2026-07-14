@@ -300,7 +300,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 
 ## Stage 6 — Production reporting, operations, and release
 
-### [ ] T600 Build the production Word report renderer
+### [x] T600 Build the production Word report renderer
 
 - **Depends on:** G3, G4, G5
 - **Deliver:** configurable `.docx` template, title/metadata, TOC fields, numbered headings, headers/footers, page numbers, repeatable table headers, landscape sections, embedded diagrams, stable filename, and all required report sections.

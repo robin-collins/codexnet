@@ -83,6 +83,8 @@ def test_root_contract_failures(document: object, message: str) -> None:
         ("collectors.snmp.enabled", "yes", "true or false"),
         ("report.confidentiality", "", "non-empty string"),
         ("report.template", "relative.docx", "absolute path"),
+        ("report.customer_name", "", "null or a non-empty string"),
+        ("report.company_name", "", "must be a non-empty string"),
         ("retention.detailed_days", 0, "integer from 1"),
         ("retention.diagnostic_capture_hours", 169, "integer from 1"),
     ],

@@ -34,6 +34,12 @@ from field_discovery.repository import Repository
 NOW = datetime(2026, 7, 15, 12, 0, tzinfo=UTC)
 OLD = "2026-07-01T00:00:00+00:00"
 OBSERVED = "2026-07-14T00:00:00+00:00"
+REPORT_METADATA = {
+    "customer_name": "Example Customer",
+    "site_name": "Fixture Site",
+    "author": "Example Technician",
+    "company_name": "Example MSP",
+}
 
 
 @pytest.fixture
@@ -116,7 +122,7 @@ def test_report_model_is_deterministic_provenance_aware_and_snapshot_stable(
     payload = deterministic_json(first)
     assert payload == deterministic_json(second)
     assert hashlib.sha256(payload).hexdigest() == (
-        "6584853cbe237f7705708fa3df37f34f756cba2b453440f0ceda493078acf87e"
+        "e2c3b9a5f44a9c5bd9880edf51d7150f98e8f8724d435dc058494c6d5e913593"
     )
 
 
@@ -136,13 +142,15 @@ def test_generate_reports_publishes_restrictive_valid_self_contained_outputs(
 ) -> None:
     deployment_id = populated(repository)
     output_root = tmp_path / "reports"
-    first = generate_reports(repository, deployment_id, output_root, generated_at=NOW)
+    first = generate_reports(
+        repository, deployment_id, output_root, generated_at=NOW, **REPORT_METADATA
+    )
 
     assert stat.S_IMODE(first.docx_path.stat().st_mode) == 0o600
     assert stat.S_IMODE(first.json_path.stat().st_mode) == 0o600
     assert first.docx_sha256 == hashlib.sha256(first.docx_path.read_bytes()).hexdigest()
     assert first.json_sha256 == hashlib.sha256(first.json_path.read_bytes()).hexdigest()
-    assert first.docx_path.name == "Fixture-Site-Network-Discovery-20260715-120000.docx"
+    assert first.docx_path.name == ("Example-Customer-Fixture-Site-Network-Discovery-20260715.docx")
     validation = validate_docx(first.docx_path)
     assert validation.external_relationships == ()
     assert validation.paragraph_count > 10
@@ -167,10 +175,12 @@ def test_generate_reports_publishes_restrictive_valid_self_contained_outputs(
         "json_sha256": first.json_sha256,
     }
 
-    model = build_report_model(repository, deployment_id, generated_at=NOW)
+    model = build_report_model(repository, deployment_id, generated_at=NOW, **REPORT_METADATA)
     assert first.docx_path.read_bytes() == deterministic_docx(model)
     with pytest.raises(ReportError, match="new regular file"):
-        generate_reports(repository, deployment_id, output_root, generated_at=NOW)
+        generate_reports(
+            repository, deployment_id, output_root, generated_at=NOW, **REPORT_METADATA
+        )
 
 
 def test_report_secret_scan_covers_json_docx_properties_and_filenames(
@@ -183,7 +193,15 @@ def test_report_secret_scan_covers_json_docx_properties_and_filenames(
     )
     repository.connection.execute("UPDATE services SET product = 'password=synthetic-secret'")
     repository.redactor = Redactor(["synthetic-secret"])
-    outputs = generate_reports(repository, deployment_id, tmp_path / "reports", generated_at=NOW)
+    outputs = generate_reports(
+        repository,
+        deployment_id,
+        tmp_path / "reports",
+        generated_at=NOW,
+        customer_name="Customer synthetic-secret",
+        site_name="Fixture Site",
+        author="Example Technician",
+    )
 
     assert "synthetic-secret" not in outputs.docx_path.name
     assert "synthetic-secret" not in outputs.json_path.name
@@ -410,6 +428,8 @@ def test_invalid_model_and_zip_inputs_fail_closed(repository: Repository, tmp_pa
         build_report_model(repository, deployment_id, generated_at=datetime(2026, 1, 1))
     with pytest.raises(ReportError, match="version"):
         build_report_model(repository, deployment_id, generated_at=NOW, document_version="bad x")
+    with pytest.raises(ReportError, match="metadata"):
+        build_report_model(repository, deployment_id, generated_at=NOW, author="")
     repository.connection.execute(
         "UPDATE device_aliases SET observed_at = 'not-a-time' WHERE id = "
         "(SELECT id FROM device_aliases LIMIT 1)"

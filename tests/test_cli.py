@@ -979,6 +979,18 @@ def test_report_cli_generates_validates_and_reports_failures(
     report = Path(generated["docx"])
     assert report.is_file()
     assert Path(generated["json"]).is_file()
+    missing_document = yaml.safe_load(config.read_text())
+    missing_document["report"]["author"] = None
+    missing_config = tmp_path / "missing-report-metadata.yaml"
+    missing_config.write_text(yaml.safe_dump(missing_document))
+    assert (
+        cli.run(
+            ["--config", str(missing_config), "report", "generate"],
+            run_id="report-metadata-missing",
+        )
+        == cli.ExitCode.REPORT
+    )
+    assert "explicit metadata" in capsys.readouterr().out
     assert (
         cli.run(
             ["--json", "--config", str(config), "report", "validate", str(report)],

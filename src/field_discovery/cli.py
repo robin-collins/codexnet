@@ -923,12 +923,32 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
             ).fetchone()
             if deployment is None:
                 raise ReportError("no deployment is available to report")
+            report_settings = configuration.data["report"]
+            missing_metadata = [
+                key
+                for key in ("customer_name", "site_name", "author")
+                if report_settings[key] is None
+            ]
+            if missing_metadata:
+                raise ReportError(
+                    "report generation requires explicit metadata: " + ", ".join(missing_metadata)
+                )
             outputs = generate_reports(
                 repository,
                 int(deployment["id"]),
                 arguments.output_dir or Path(paths["data_root"]) / "reports",
                 generated_at=datetime.now(UTC),
-                confidentiality=str(configuration.data["report"]["confidentiality"]),
+                customer_name=str(report_settings["customer_name"]),
+                site_name=str(report_settings["site_name"]),
+                author=str(report_settings["author"]),
+                company_name=str(report_settings["company_name"]),
+                confidentiality=str(report_settings["confidentiality"]),
+                document_version=str(report_settings["document_version"]),
+                template_path=(
+                    Path(str(report_settings["template"]))
+                    if report_settings["template"] is not None
+                    else None
+                ),
             )
             payload = {
                 "ok": True,
