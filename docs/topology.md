@@ -16,3 +16,10 @@ Node and edge ordering, opaque identifiers, labels, numeric confidence formattin
 layout are deterministic. The module emits standalone Graphviz DOT and Mermaid source plus a
 self-contained SVG renderer with no network, browser, shell, font, or external-resource dependency.
 Rendered edges display source and confidence, and inferred edges use a dashed style.
+
+Every graph build requires an explicit timezone-aware `as_of` snapshot. Observations and configured
+VLAN/subnet evidence dated after that snapshot are excluded. Evidence with `expires_at` or
+`valid_until` equal to or earlier than the snapshot is also excluded before any node, edge, or
+conflict is inferred. Active edges retain their validity deadline. The graph records expired and
+future exclusion counts and deterministic limitation text for reports and diagrams; it does not
+delete or mutate the historical evidence retained by the repository.

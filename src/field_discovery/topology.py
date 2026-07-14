@@ -48,6 +48,7 @@ class SubnetEvidence:
     source: str
     observed_at: datetime
     confidence: float = 1.0
+    valid_until: datetime | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -59,6 +60,10 @@ class SubnetEvidence:
         object.__setattr__(self, "cidr", str(network))
         object.__setattr__(self, "source", _text(self.source, "subnet source", 128))
         object.__setattr__(self, "observed_at", _utc(self.observed_at))
+        if self.valid_until is not None:
+            object.__setattr__(
+                self, "valid_until", _valid_until(self.valid_until, self.observed_at)
+            )
         _confidence(self.confidence)
 
 
@@ -70,12 +75,17 @@ class VlanEvidence:
     subnet_cidr: str | None = None
     name: str | None = None
     confidence: float = 1.0
+    valid_until: datetime | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.vlan_id, bool) or not 0 <= self.vlan_id <= 4094:
             raise TopologyError("VLAN ID must be from 0 to 4094")
         object.__setattr__(self, "source", _text(self.source, "VLAN source", 128))
         object.__setattr__(self, "observed_at", _utc(self.observed_at))
+        if self.valid_until is not None:
+            object.__setattr__(
+                self, "valid_until", _valid_until(self.valid_until, self.observed_at)
+            )
         if self.name is not None:
             object.__setattr__(self, "name", _text(self.name, "VLAN name", 128))
         if self.subnet_cidr is not None:
@@ -105,6 +115,7 @@ class TopologyEdge:
     confidence: float
     inferred: bool
     observed_at: datetime
+    valid_until: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.source_node == self.target_node:
@@ -115,6 +126,10 @@ class TopologyEdge:
         )
         _confidence(self.confidence)
         object.__setattr__(self, "observed_at", _utc(self.observed_at))
+        if self.valid_until is not None:
+            object.__setattr__(
+                self, "valid_until", _valid_until(self.valid_until, self.observed_at)
+            )
 
 
 @dataclass(frozen=True)
@@ -130,6 +145,10 @@ class TopologyGraph:
     nodes: tuple[TopologyNode, ...]
     edges: tuple[TopologyEdge, ...]
     conflicts: tuple[TopologyConflict, ...]
+    as_of: datetime | None = None
+    excluded_expired: int = 0
+    excluded_future: int = 0
+    limitations: tuple[str, ...] = ()
 
 
 def _confidence(value: float) -> None:
@@ -137,11 +156,21 @@ def _confidence(value: float) -> None:
         raise TopologyError("confidence must be between 0 and 1")
 
 
+def _valid_until(value: datetime, observed_at: datetime) -> datetime:
+    normalized = _utc(value)
+    if normalized < observed_at:
+        raise TopologyError("valid_until must not precede observed_at")
+    return normalized
+
+
 class _Builder:
-    def __init__(self) -> None:
+    def __init__(self, as_of: datetime) -> None:
+        self.as_of = as_of
         self.nodes: dict[str, TopologyNode] = {}
         self.edges: dict[tuple[str, str, str, str], TopologyEdge] = {}
         self.conflicts: list[TopologyConflict] = []
+        self.excluded_expired = 0
+        self.excluded_future = 0
 
     def node(self, kind: str, identity: str, label: str | None = None) -> str:
         identifier = node_id(kind, identity)
@@ -154,13 +183,38 @@ class _Builder:
     def edge(self, edge: TopologyEdge) -> None:
         key = (edge.source_node, edge.target_node, edge.kind, edge.evidence_source)
         previous = self.edges.get(key)
-        if previous is None or (edge.confidence, edge.observed_at) > (
+        if previous is None or (
+            edge.confidence,
+            edge.observed_at,
+            edge.valid_until or datetime.max.replace(tzinfo=UTC),
+        ) > (
             previous.confidence,
             previous.observed_at,
+            previous.valid_until or datetime.max.replace(tzinfo=UTC),
         ):
             self.edges[key] = edge
 
+    def active(self, observed_at: datetime, valid_until: datetime | None) -> bool:
+        if observed_at > self.as_of:
+            self.excluded_future += 1
+            return False
+        if valid_until is not None and valid_until <= self.as_of:
+            self.excluded_expired += 1
+            return False
+        return True
+
     def result(self) -> TopologyGraph:
+        limitations: list[str] = []
+        if self.excluded_expired:
+            limitations.append(
+                f"{self.excluded_expired} expired evidence item(s) were excluded from the active "
+                f"topology as of {self.as_of.isoformat()}."
+            )
+        if self.excluded_future:
+            limitations.append(
+                f"{self.excluded_future} future-dated evidence item(s) were excluded from the "
+                f"topology as of {self.as_of.isoformat()}."
+            )
         return TopologyGraph(
             tuple(sorted(self.nodes.values(), key=lambda item: item.node_id)),
             tuple(
@@ -175,6 +229,10 @@ class _Builder:
                 )
             ),
             tuple(sorted(self.conflicts, key=lambda item: (item.kind, item.subject, item.details))),
+            self.as_of,
+            self.excluded_expired,
+            self.excluded_future,
+            tuple(limitations),
         )
 
 
@@ -182,6 +240,10 @@ def _observed_at(observation: PassiveObservation) -> datetime:
     if observation.observed_at is None:
         raise TopologyError("topology observations require an observed_at timestamp")
     return _utc(observation.observed_at)
+
+
+def _expires_at(observation: PassiveObservation) -> datetime | None:
+    return None if observation.expires_at is None else _utc(observation.expires_at)
 
 
 def _string(fields: dict[str, Any], key: str) -> str | None:
@@ -208,15 +270,27 @@ def build_topology(
     observations: Iterable[PassiveObservation],
     *,
     local_identity: str,
+    as_of: datetime | None = None,
     local_label: str | None = None,
     subnets: Iterable[SubnetEvidence] = (),
     vlans: Iterable[VlanEvidence] = (),
 ) -> TopologyGraph:
     """Build deterministic observed/inferred topology from normalized passive facts."""
-    builder = _Builder()
+    if as_of is None:
+        raise TopologyError("an explicit as_of timestamp is required for active topology")
+    snapshot = _utc(as_of)
+    builder = _Builder(snapshot)
     local = _device_node(builder, "local", _text(local_identity, "local identity"), local_label)
-    subnet_items = tuple(sorted(subnets, key=lambda item: item.cidr))
-    vlan_items = tuple(sorted(vlans, key=lambda item: (item.vlan_id, item.source)))
+    subnet_items = tuple(
+        item
+        for item in sorted(subnets, key=lambda item: item.cidr)
+        if builder.active(item.observed_at, item.valid_until)
+    )
+    vlan_items = tuple(
+        item
+        for item in sorted(vlans, key=lambda item: (item.vlan_id, item.source))
+        if builder.active(item.observed_at, item.valid_until)
+    )
     subnet_nodes: dict[str, str] = {}
     for subnet in subnet_items:
         subnet_nodes[subnet.cidr] = builder.node("subnet", subnet.cidr)
@@ -242,6 +316,7 @@ def build_topology(
                     vlan.confidence,
                     False,
                     vlan.observed_at,
+                    vlan.valid_until,
                 )
             )
 
@@ -256,6 +331,14 @@ def build_topology(
     )
     vlan_claims: dict[str, list[tuple[int, str]]] = defaultdict(list)
     for observation in ordered_observations:
+        observed_at = _observed_at(observation)
+        valid_until = (
+            None
+            if observation.expires_at is None
+            else _valid_until(observation.expires_at, observed_at)
+        )
+        if not builder.active(observed_at, valid_until):
+            continue
         fields = dict(observation.fields)
         if observation.kind == "link_layer_neighbor":
             _link_layer(builder, local, fields, observation, vlan_nodes, vlan_claims)
@@ -328,6 +411,7 @@ def _link_layer(
             0.99,
             False,
             _observed_at(observation),
+            _expires_at(observation),
         )
     )
     vlan_value = fields.get("vlan_id")
@@ -348,6 +432,7 @@ def _link_layer(
             0.95,
             False,
             _observed_at(observation),
+            _expires_at(observation),
         )
     )
     vlan_claims[remote].append((vlan_value, observation.source))
@@ -384,6 +469,7 @@ def _mdns(
                 0.95,
                 False,
                 timestamp,
+                _expires_at(observation),
             )
         )
         return
@@ -396,7 +482,14 @@ def _mdns(
         host_node = _device_node(builder, "hostname", hostname, hostname)
         builder.edge(
             TopologyEdge(
-                instance_node, host_node, "service_host", observation.source, 0.95, False, timestamp
+                instance_node,
+                host_node,
+                "service_host",
+                observation.source,
+                0.95,
+                False,
+                timestamp,
+                _expires_at(observation),
             )
         )
         return
@@ -406,7 +499,15 @@ def _mdns(
         return
     host_node = _device_node(builder, "hostname", hostname, hostname)
     _membership(
-        builder, host_node, address, observation.source, 0.70, timestamp, subnets, subnet_nodes
+        builder,
+        host_node,
+        address,
+        observation.source,
+        0.70,
+        timestamp,
+        _expires_at(observation),
+        subnets,
+        subnet_nodes,
     )
 
 
@@ -430,14 +531,29 @@ def _dhcp(
     client = _device_node(builder, identity_kind, identity, _string(fields, "hostname") or identity)
     timestamp = _observed_at(observation)
     _membership(
-        builder, client, address, observation.source, 0.90, timestamp, subnets, subnet_nodes
+        builder,
+        client,
+        address,
+        observation.source,
+        0.90,
+        timestamp,
+        _expires_at(observation),
+        subnets,
+        subnet_nodes,
     )
     server = _string(fields, "server_identifier")
     if server is not None:
         server_node = _device_node(builder, "ipv4_observation", server, f"DHCP {server}")
         builder.edge(
             TopologyEdge(
-                server_node, client, "dhcp_lease", observation.source, 0.90, False, timestamp
+                server_node,
+                client,
+                "dhcp_lease",
+                observation.source,
+                0.90,
+                False,
+                timestamp,
+                _expires_at(observation),
             )
         )
 
@@ -461,6 +577,7 @@ def _neighbor(
         observation.source,
         0.75,
         _observed_at(observation),
+        _expires_at(observation),
         subnets,
         subnet_nodes,
     )
@@ -473,6 +590,7 @@ def _membership(
     source: str,
     confidence: float,
     observed_at: datetime,
+    valid_until: datetime | None,
     subnets: tuple[SubnetEvidence, ...],
     subnet_nodes: dict[str, str],
 ) -> None:
@@ -489,6 +607,7 @@ def _membership(
             min(confidence, subnet.confidence),
             True,
             observed_at,
+            valid_until,
         )
     )
 
@@ -503,7 +622,10 @@ def graphviz_source(graph: TopologyGraph) -> str:
         lines.append(f"  {node.node_id} [shape={shape},label={json.dumps(label)}];")
     for edge in graph.edges:
         status = "inferred" if edge.inferred else "observed"
-        label = f"{edge.kind}\\n{edge.evidence_source} {edge.confidence:.2f} {status}"
+        validity = edge.valid_until.isoformat() if edge.valid_until is not None else "open"
+        label = (
+            f"{edge.kind}\\n{edge.evidence_source} {edge.confidence:.2f} {status} until={validity}"
+        )
         style = "dashed" if edge.inferred else "solid"
         lines.append(
             f"  {edge.source_node} -> {edge.target_node} [style={style},label={json.dumps(label)}];"
@@ -513,6 +635,11 @@ def graphviz_source(graph: TopologyGraph) -> str:
         lines.append(
             f"  conflict_{index:04d} "
             f"[shape=note,color=red,fontcolor=red,label={json.dumps(label)}];"
+        )
+    for index, limitation in enumerate(graph.limitations):
+        lines.append(
+            f"  limitation_{index:04d} "
+            f"[shape=note,color=orange,label={json.dumps('LIMITATION: ' + limitation)}];"
         )
     lines.append("}")
     return "\n".join(lines) + "\n"
@@ -526,13 +653,20 @@ def mermaid_source(graph: TopologyGraph) -> str:
         lines.append(f'  {node.node_id}["{label}<br/>[{node.kind}]"]')
     for edge in graph.edges:
         status = "inferred" if edge.inferred else "observed"
-        label = f"{edge.kind}; {edge.evidence_source}; {edge.confidence:.2f}; {status}"
+        validity = edge.valid_until.isoformat() if edge.valid_until is not None else "open"
+        label = (
+            f"{edge.kind}; {edge.evidence_source}; {edge.confidence:.2f}; {status}; "
+            f"until={validity}"
+        )
         connector = "-.->" if edge.inferred else "-->"
         lines.append(f"  {edge.source_node} {connector}|{label}| {edge.target_node}")
     for index, conflict in enumerate(graph.conflicts):
         label = f"CONFLICT: {conflict.kind} — {conflict.subject}".replace('"', "'")
         lines.append(f'  conflict_{index:04d}["{label}"]')
         lines.append(f"  style conflict_{index:04d} fill:#fee,stroke:#c00,color:#900")
+    for index, limitation in enumerate(graph.limitations):
+        label = ("LIMITATION: " + limitation).replace('"', "'")
+        lines.append(f'  limitation_{index:04d}["{label}"]')
     return "\n".join(lines) + "\n"
 
 
@@ -544,7 +678,8 @@ def render_svg(graph: TopologyGraph) -> str:
     }
     rows = (len(graph.nodes) + 2) // 3
     conflict_y = 80 + rows * 150
-    height = max(240, conflict_y + max(1, len(graph.conflicts)) * 45 + 40)
+    annotation_count = len(graph.conflicts) + len(graph.limitations)
+    height = max(240, conflict_y + max(1, annotation_count) * 45 + 40)
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="{height}" '
         'viewBox="0 0 1200 {height}" role="img">'.format(height=height),
@@ -559,7 +694,10 @@ def render_svg(graph: TopologyGraph) -> str:
             f'<line x1="{x1 + 130}" y1="{y1 + 30}" x2="{x2 + 130}" y2="{y2 + 30}" '
             f'stroke="#555"{dash}/>'
         )
-        label = xml_escape(f"{edge.kind} · {edge.evidence_source} · {edge.confidence:.2f}")
+        validity = edge.valid_until.isoformat() if edge.valid_until is not None else "open"
+        label = xml_escape(
+            f"{edge.kind} · {edge.evidence_source} · {edge.confidence:.2f} · until {validity}"
+        )
         parts.append(
             f'<text x="{(x1 + x2) // 2 + 130}" y="{(y1 + y2) // 2 + 20}" '
             f'font-size="11" text-anchor="middle">{label}</text>'
@@ -581,6 +719,13 @@ def render_svg(graph: TopologyGraph) -> str:
         text = xml_escape(f"CONFLICT: {conflict.kind} — {conflict.subject}")
         parts.append(
             f'<text x="80" y="{conflict_y + index * 45}" font-size="14" fill="#a00">{text}</text>'
+        )
+    limitation_y = conflict_y + len(graph.conflicts) * 45
+    for index, limitation in enumerate(graph.limitations):
+        text = xml_escape("LIMITATION: " + limitation)
+        parts.append(
+            f'<text x="80" y="{limitation_y + index * 45}" font-size="13" fill="#964b00">'
+            f"{text}</text>"
         )
     parts.append("</svg>")
     return "\n".join(parts) + "\n"

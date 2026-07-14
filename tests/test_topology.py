@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -26,6 +26,7 @@ from field_discovery.topology import (
 )
 
 NOW = datetime(2026, 7, 15, 2, tzinfo=UTC)
+AS_OF = datetime(2026, 7, 15, 3, tzinfo=UTC)
 FIXTURE = Path(__file__).parent / "fixtures/topology/observations.json"
 
 
@@ -46,6 +47,7 @@ def fixture_graph(items: tuple[PassiveObservation, ...] | None = None) -> Topolo
     return build_topology(
         observations() if items is None else items,
         local_identity="codexnet-pi",
+        as_of=AS_OF,
         local_label="CodexNet Pi",
         subnets=(SubnetEvidence("192.168.50.0/24", "resolver", NOW, 0.98),),
         vlans=(VlanEvidence(10, "site-config", NOW, "192.168.50.0/24", "Users", 1.0),),
@@ -91,7 +93,7 @@ def test_input_order_and_repeated_evidence_produce_stable_hash() -> None:
     assert forward == reverse == duplicate
     dot = graphviz_source(forward)
     assert diagram_digest(dot) == diagram_digest(graphviz_source(reverse))
-    assert diagram_digest(dot) == "6f073c697828c626f17f221581c63bcc8e9219f67265b914ad41dd134dbf8b16"
+    assert diagram_digest(dot) == "fe35ac4d88ad14e37312bc16f3143261c914d6abe5dffd70c47d78545e1bb4cf"
 
 
 def test_graphviz_mermaid_and_svg_show_inference_provenance_and_conflicts() -> None:
@@ -155,6 +157,7 @@ def test_longest_prefix_subnet_is_selected_and_invalid_addresses_are_not_asserte
     graph = build_topology(
         (item,),
         local_identity="pi",
+        as_of=NOW,
         subnets=(
             SubnetEvidence("10.0.0.0/16", "broad", NOW),
             SubnetEvidence("10.0.1.0/24", "specific", NOW, 0.6),
@@ -170,7 +173,7 @@ def test_longest_prefix_subnet_is_selected_and_invalid_addresses_are_not_asserte
         "arp",
         observed_at=NOW,
     )
-    assert not build_topology((invalid,), local_identity="pi").edges
+    assert not build_topology((invalid,), local_identity="pi", as_of=NOW).edges
 
     valid_without_subnet = PassiveObservation(
         "neighbor_observation",
@@ -178,7 +181,7 @@ def test_longest_prefix_subnet_is_selected_and_invalid_addresses_are_not_asserte
         "arp",
         observed_at=NOW,
     )
-    assert not build_topology((valid_without_subnet,), local_identity="pi").edges
+    assert not build_topology((valid_without_subnet,), local_identity="pi", as_of=NOW).edges
 
 
 def test_vlan_without_subnet_and_single_claim_do_not_create_conflicts() -> None:
@@ -191,6 +194,7 @@ def test_vlan_without_subnet_and_single_claim_do_not_create_conflicts() -> None:
     graph = build_topology(
         (link,),
         local_identity="pi",
+        as_of=NOW,
         vlans=(
             VlanEvidence(30, "config", NOW, name="Voice"),
             VlanEvidence(40, "config", NOW),
@@ -208,7 +212,7 @@ def test_invalid_observed_vlan_is_not_rendered_as_fact(vlan_value: JsonValue) ->
         "lldp",
         observed_at=NOW,
     )
-    graph = build_topology((link,), local_identity="pi")
+    graph = build_topology((link,), local_identity="pi", as_of=NOW)
     assert [edge.kind for edge in graph.edges] == ["link_layer_neighbor"]
 
 
@@ -228,6 +232,7 @@ def test_dhcp_client_id_fallback_and_missing_server_are_conservative() -> None:
     graph = build_topology(
         (item,),
         local_identity="pi",
+        as_of=NOW,
         subnets=(SubnetEvidence("10.0.0.0/24", "resolver", NOW),),
     )
     assert [edge.kind for edge in graph.edges] == ["inferred_subnet_membership"]
@@ -241,7 +246,7 @@ def test_missing_mdns_fields_and_unrecognized_observations_are_ignored() -> None
         PassiveObservation("mdns_address", {"hostname": "x"}, "mdns", observed_at=NOW),
         PassiveObservation("something_new", {"unknown": True}, "future", observed_at=NOW),
     )
-    graph = build_topology(items, local_identity="pi")
+    graph = build_topology(items, local_identity="pi", as_of=NOW)
     assert len(graph.nodes) == 1
     assert not graph.edges and not graph.conflicts
 
@@ -287,7 +292,7 @@ def test_edge_and_node_contracts_reject_invalid_values() -> None:
         TopologyEdge("a", "b", "kind", "source", 1.0, False, datetime(2026, 1, 1))
     missing_time = PassiveObservation("unknown", {}, "source")
     with pytest.raises(TopologyError, match="observed_at"):
-        build_topology((missing_time,), local_identity="pi")
+        build_topology((missing_time,), local_identity="pi", as_of=NOW)
 
 
 def test_duplicate_edges_choose_highest_confidence_then_latest() -> None:
@@ -299,3 +304,164 @@ def test_duplicate_edges_choose_highest_confidence_then_latest() -> None:
     )
     assert "A &amp; &lt;one&gt;" in render_svg(graph)
     assert "B 'two'" in mermaid_source(graph)
+
+
+def expiring_observations(
+    *, expires_at: datetime, source_suffix: str = ""
+) -> tuple[PassiveObservation, ...]:
+    return (
+        PassiveObservation(
+            "link_layer_neighbor",
+            {"chassis_id": "switch", "port_id": "p1"},
+            "passive:lldp" + source_suffix,
+            observed_at=NOW,
+            expires_at=expires_at,
+        ),
+        PassiveObservation(
+            "mdns_address",
+            {"hostname": "host.local", "address": "192.168.50.20", "action": "announce"},
+            "mdns" + source_suffix,
+            observed_at=NOW,
+            expires_at=expires_at,
+        ),
+        PassiveObservation(
+            "dhcp_message",
+            {
+                "message_type": "ack",
+                "client_mac": "00:11:22:33:44:55",
+                "assigned_address": "192.168.50.21",
+            },
+            "dhcp" + source_suffix,
+            observed_at=NOW,
+            expires_at=expires_at,
+        ),
+        PassiveObservation(
+            "neighbor_observation",
+            {"address": "192.168.50.22", "mac_address": "00:11:22:33:44:66"},
+            "arp" + source_suffix,
+            observed_at=NOW,
+            expires_at=expires_at,
+        ),
+    )
+
+
+def test_expiry_boundary_excludes_lldp_mdns_dhcp_and_arp_facts() -> None:
+    as_of = NOW + timedelta(hours=1)
+    items = expiring_observations(expires_at=as_of)
+    graph = build_topology(
+        items,
+        local_identity="pi",
+        as_of=as_of,
+        subnets=(SubnetEvidence("192.168.50.0/24", "resolver", NOW),),
+    )
+    assert len(graph.nodes) == 2  # local and configured subnet, no stale fact nodes
+    assert graph.edges == ()
+    assert graph.conflicts == ()
+    assert graph.excluded_expired == 4
+    assert graph.excluded_future == 0
+    assert "4 expired evidence item(s)" in graph.limitations[0]
+    assert len(items) == 4  # caller-owned evidence remains intact for repository/report use
+
+
+def test_mixed_fresh_and_stale_sources_keep_only_fresh_edges_and_conflicts() -> None:
+    as_of = NOW + timedelta(hours=1)
+    stale = PassiveObservation(
+        "link_layer_neighbor",
+        {"chassis_id": "same-switch", "port_id": "old"},
+        "passive:lldp",
+        observed_at=NOW,
+        expires_at=as_of,
+    )
+    fresh_until = as_of + timedelta(minutes=5)
+    fresh = PassiveObservation(
+        "link_layer_neighbor",
+        {"chassis_id": "same-switch", "port_id": "new"},
+        "passive:cdp",
+        observed_at=NOW + timedelta(minutes=1),
+        expires_at=fresh_until,
+    )
+    stale_conflict = PassiveObservation(
+        "neighbor_ip_reuse",
+        {"address": "192.168.50.20", "current_mac": "00:11:22:33:44:55"},
+        "arp-old",
+        observed_at=NOW,
+        expires_at=as_of,
+    )
+    fresh_conflict = PassiveObservation(
+        "neighbor_mac_movement",
+        {"address": "192.168.50.21", "current_mac": "00:11:22:33:44:55"},
+        "arp-new",
+        observed_at=NOW,
+        expires_at=fresh_until,
+    )
+    graph = build_topology(
+        (stale, fresh, stale_conflict, fresh_conflict),
+        local_identity="pi",
+        as_of=as_of,
+    )
+    assert [(edge.evidence_source, edge.valid_until) for edge in graph.edges] == [
+        ("passive:cdp", fresh_until)
+    ]
+    assert [conflict.kind for conflict in graph.conflicts] == ["neighbor_mac_movement"]
+    assert graph.excluded_expired == 2
+
+
+def test_silent_24_hour_replay_has_no_active_passive_topology() -> None:
+    items = expiring_observations(expires_at=NOW + timedelta(minutes=5))
+    graph = build_topology(items, local_identity="pi", as_of=NOW + timedelta(hours=24))
+    assert [node.label for node in graph.nodes] == ["pi"]
+    assert not graph.edges and not graph.conflicts
+    assert graph.excluded_expired == 4
+    assert graph.limitations
+    assert "LIMITATION: 4 expired" in graphviz_source(graph)
+    assert "LIMITATION: 4 expired" in mermaid_source(graph)
+    assert "LIMITATION: 4 expired" in render_svg(graph)
+
+
+def test_as_of_is_explicit_timezone_aware_and_future_evidence_is_excluded() -> None:
+    with pytest.raises(TopologyError, match="explicit as_of"):
+        build_topology((), local_identity="pi")
+    with pytest.raises(TopologyError, match="timezone-aware"):
+        build_topology((), local_identity="pi", as_of=datetime(2026, 1, 1))
+
+    local_as_of = datetime(2026, 7, 15, 12, 30, tzinfo=timezone(timedelta(hours=10, minutes=30)))
+    future = PassiveObservation(
+        "link_layer_neighbor",
+        {"chassis_id": "future", "port_id": "p1"},
+        "lldp",
+        observed_at=NOW + timedelta(seconds=1),
+    )
+    graph = build_topology((future,), local_identity="pi", as_of=local_as_of)
+    assert graph.as_of == NOW
+    assert graph.excluded_future == 1
+    assert not graph.edges
+    assert "future-dated" in graph.limitations[0]
+
+
+def test_invalid_validity_intervals_are_rejected() -> None:
+    with pytest.raises(TopologyError, match="timezone-aware"):
+        SubnetEvidence("10.0.0.0/24", "source", NOW, valid_until=datetime(2026, 1, 1))
+    with pytest.raises(TopologyError, match="precede"):
+        VlanEvidence(10, "source", NOW, valid_until=NOW - timedelta(seconds=1))
+    observation = PassiveObservation(
+        "link_layer_neighbor",
+        {"chassis_id": "switch", "port_id": "p1"},
+        "lldp",
+        observed_at=NOW,
+        expires_at=NOW - timedelta(seconds=1),
+    )
+    with pytest.raises(TopologyError, match="precede"):
+        build_topology((observation,), local_identity="pi", as_of=NOW)
+
+
+def test_expired_and_future_subnet_vlan_definitions_are_limited() -> None:
+    graph = build_topology(
+        (),
+        local_identity="pi",
+        as_of=NOW,
+        subnets=(SubnetEvidence("10.0.0.0/24", "old", NOW, valid_until=NOW),),
+        vlans=(VlanEvidence(20, "future", NOW + timedelta(seconds=1)),),
+    )
+    assert len(graph.nodes) == 1
+    assert graph.excluded_expired == graph.excluded_future == 1
+    assert len(graph.limitations) == 2
