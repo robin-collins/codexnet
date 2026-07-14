@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import unquote_plus, urlsplit
 
 import yaml
 
@@ -23,13 +23,20 @@ _INLINE_SECRET_KEYS = {
     "passphrase",
     "token",
     "access_token",
+    "refresh_token",
+    "id_token",
     "api_key",
+    "api-key",
+    "apikey",
     "community",
+    "snmp_community",
+    "community_string",
     "private_key",
     "auth_key",
     "priv_key",
     "client_secret",
 }
+_MAX_URL_DECODE_PASSES = 2
 
 
 class ConfigurationError(ValueError):
@@ -237,6 +244,23 @@ def _boolean(value: object, path: str) -> None:
         raise ConfigurationError(f"{path} must be true or false")
 
 
+def _decoded_forms(value: str) -> list[str]:
+    forms = [value]
+    for _ in range(_MAX_URL_DECODE_PASSES):
+        forms.append(unquote_plus(forms[-1]))
+    return forms
+
+
+def _contains_credential_parameter(value: str) -> bool:
+    sensitive = _INLINE_SECRET_KEYS | {"client_secret"}
+    for form in _decoded_forms(value):
+        for field in re.split(r"[&;]", form):
+            key = field.partition("=")[0].strip().casefold()
+            if key in sensitive:
+                return True
+    return False
+
+
 def _validate_types(config: dict[str, Any]) -> None:
     interface = config["interface"]
     if not isinstance(interface["name"], str) or not interface["name"]:
@@ -365,14 +389,12 @@ def _validate_protocols(collectors: dict[str, Any]) -> None:
         parsed = urlsplit(url)
         if parsed.scheme != "https" or not parsed.hostname:
             raise ConfigurationError(f"{path}.url must use https://")
-        if "@" in parsed.netloc:
+        if any("@" in form for form in _decoded_forms(parsed.netloc)):
             raise ConfigurationError(f"{path}.url must not contain userinfo credentials")
-        sensitive_query_keys = _INLINE_SECRET_KEYS | {"client_secret"}
-        if any(
-            key.casefold() in sensitive_query_keys
-            for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
-        ):
+        if _contains_credential_parameter(parsed.query):
             raise ConfigurationError(f"{path}.url must not contain credential query parameters")
+        if _contains_credential_parameter(parsed.fragment):
+            raise ConfigurationError(f"{path}.url must not contain credential fragments")
         _boolean(endpoint.get("verify_tls"), f"{path}.verify_tls")
         _boolean(endpoint.get("allow_self_signed"), f"{path}.allow_self_signed")
         if not endpoint["verify_tls"] and not endpoint["allow_self_signed"]:

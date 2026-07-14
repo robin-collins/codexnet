@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import base64
+import json
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, quote_plus, unquote_plus
 
 REDACTED = "[REDACTED]"
 _SENSITIVE_KEY = re.compile(
     r"^(?:password|passwd|pwd|passphrase|token|access_token|api[_-]?key|community|"
-    r"authorization|authentication|cookie|secret|client_secret|auth_key|priv_key|private_key)$",
+    r"authorization|authentication|cookie|secret|client_secret|auth_key|priv_key|private_key|"
+    r"refresh_token|id_token|snmp_community|community_string)$",
     re.IGNORECASE,
 )
 _QUOTED_AUTH_DOUBLE = re.compile(
@@ -25,6 +27,14 @@ _QUOTED_AUTH_SINGLE = re.compile(
 _ESCAPED_AUTH_DOUBLE = re.compile(
     r'(?i)(\\"(?:authorization|authentication)\\"\s*:\s*)(\\")'
     r'((?:(?!\\").)*)(\\")'
+)
+_JSON_FIELD = re.compile(
+    r'(?P<key>"(?:\\.|[^"\\])*")(?P<separator>\s*:\s*)'
+    r'(?P<value>"(?:\\.|[^"\\])*")'
+)
+_ESCAPED_JSON_FIELD = re.compile(
+    r'(?P<key>\\"(?:(?!\\").)*\\")(?P<separator>\s*:\s*)'
+    r'(?P<value>\\"(?:(?!\\").)*\\")'
 )
 _AUTH_HEADER = re.compile(
     r"(?i)\b((?:authorization|authentication)\s*[:=]\s*)"
@@ -52,17 +62,37 @@ _AUTH_PARAMETERS = {
 }
 _ASSIGNMENT = re.compile(
     r"(?im)\b(password|passwd|pwd|passphrase|token|access_token|api[_-]?key|community|"
-    r"cookie|client_secret|secret|auth_key|priv_key|private_key)"
-    r"(\s*[:=]\s*)"
+    r"cookie|client_secret|secret|auth_key|priv_key|private_key|refresh_token|id_token|"
+    r"snmp_community|community_string)"
+    r"(\s*(?:=>|->|::|[:=])\s*)"
     r'(?:"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
     r'|"(?:\\.|[^"\\\r\n;])*(?=;|\r?$)'
     r"|'(?:\\.|[^'\\\r\n;])*(?=;|\r?$)|[^\s,;]+)"
 )
 _URI_USERINFO = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s/:@]*:)([^\s/@]+)(@)", re.IGNORECASE)
+_PERCENT_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9_.~%+\-])[A-Za-z0-9_.~%+\-]*[%+][A-Za-z0-9_.~%+\-]*(?![A-Za-z0-9_.~%+\-])"
+)
+_HEX_TOKEN = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{8,}(?![0-9A-Fa-f])")
+_MAX_DECODE_PASSES = 2
 
 
 def _redact_quoted_authorization(match: re.Match[str]) -> str:
     return f"{match.group(1)}{match.group(2)}{REDACTED}{match.group(4)}"
+
+
+def _redact_json_authorization(match: re.Match[str]) -> str:
+    key = json.loads(match.group("key"))
+    if key.casefold() not in {"authorization", "authentication"}:
+        return match.group(0)
+    return f"{match.group('key')}{match.group('separator')}{json.dumps(REDACTED)}"
+
+
+def _redact_escaped_json_authorization(match: re.Match[str]) -> str:
+    key = json.loads(f'"{match.group("key")[2:-2]}"')
+    if key.casefold() not in {"authorization", "authentication"}:
+        return match.group(0)
+    return f'{match.group("key")}{match.group("separator")}\\"{REDACTED}\\"'
 
 
 def _redact_authorization_header(match: re.Match[str]) -> str:
@@ -92,9 +122,11 @@ class Redactor:
 
     def __init__(self, secrets: Sequence[str] = ()) -> None:
         variants: set[str] = set()
+        registered: set[str] = set()
         for secret in secrets:
             if len(secret) < 4:
                 continue
+            registered.add(secret.casefold())
             raw = secret.encode()
             percent = quote(secret, safe="")
             percent_lower = re.sub(r"%[0-9A-F]{2}", lambda match: match.group().lower(), percent)
@@ -118,17 +150,39 @@ class Redactor:
                     ),
                     raw.hex(),
                     raw.hex().upper(),
+                    quote_plus(secret, safe=""),
                 }
             )
             variants.update(encoded)
             variants.update(value.rstrip("=") for value in encoded)
         self._variants = tuple(sorted(variants, key=len, reverse=True))
+        self._registered = frozenset(registered)
+
+    def _encoded(self, match: re.Match[str]) -> str:
+        candidate = match.group(0)
+        decoded = candidate
+        for _ in range(_MAX_DECODE_PASSES):
+            decoded = unquote_plus(decoded)
+            if decoded.casefold() in self._registered:
+                return REDACTED
+        return candidate
+
+    def _hex(self, match: re.Match[str]) -> str:
+        try:
+            decoded = bytes.fromhex(match.group(0)).decode()
+        except (UnicodeDecodeError, ValueError):
+            return match.group(0)
+        return REDACTED if decoded.casefold() in self._registered else match.group(0)
 
     def text(self, value: object) -> str:
         """Return text with known and structural secret forms removed."""
         result = str(value)
         for variant in self._variants:
             result = result.replace(variant, REDACTED)
+        result = _PERCENT_TOKEN.sub(self._encoded, result)
+        result = _HEX_TOKEN.sub(self._hex, result)
+        result = _JSON_FIELD.sub(_redact_json_authorization, result)
+        result = _ESCAPED_JSON_FIELD.sub(_redact_escaped_json_authorization, result)
         result = _QUOTED_AUTH_DOUBLE.sub(_redact_quoted_authorization, result)
         result = _QUOTED_AUTH_SINGLE.sub(_redact_quoted_authorization, result)
         result = _ESCAPED_AUTH_DOUBLE.sub(_redact_quoted_authorization, result)

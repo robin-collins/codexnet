@@ -159,6 +159,14 @@ def test_insecure_protocols_require_explicit_scoped_opt_in() -> None:
         "https://example.invalid/?access_token=synthetic",
         "https://example.invalid/?access%5Ftoken=synthetic",
         "https://example.invalid/?client_secret=synthetic",
+        "https://example.invalid/?api-key=synthetic",
+        "https://example.invalid/?apikey=synthetic",
+        "https://example.invalid/?refresh_token=synthetic",
+        "https://example.invalid/?safe=1;id_token=synthetic",
+        "https://example.invalid/?%2561ccess_token=synthetic",
+        "https://example.invalid/#snmp_community=synthetic",
+        "https://example.invalid/#community%255Fstring=synthetic",
+        "https://user%40example.invalid",
     ],
 )
 def test_controller_urls_reject_embedded_credentials(url: str) -> None:
@@ -169,9 +177,19 @@ def test_controller_urls_reject_embedded_credentials(url: str) -> None:
 
 
 def test_controller_url_allows_safe_lookalike_query_and_serializes_it() -> None:
-    url = "https://example.invalid/?token_count=4&authorization_status=ok"
+    url = "https://example.invalid/?token_count=4&authorization_status=ok#community_name=public"
     document = set_path(example(), "collectors.unifi.endpoints.0.url", url)
     assert url in validate_config(document).serialized()
+
+
+def test_controller_url_decoding_is_capped_at_two_passes() -> None:
+    url = "https://example.invalid/?%252561ccess_token=synthetic"
+    assert (
+        url
+        in validate_config(
+            set_path(example(), "collectors.unifi.endpoints.0.url", url)
+        ).serialized()
+    )
 
 
 def test_enabled_ad_requires_approved_domain_and_base_dn() -> None:

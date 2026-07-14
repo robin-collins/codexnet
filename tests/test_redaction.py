@@ -140,6 +140,14 @@ def test_bytes_escaped_and_authentication_fields_are_redacted() -> None:
         "Authentication: Custom synthetic-first\r\n synthetic-continuation\r\nSafe-Header: visible"
     )
     assert Redactor().text(folded) == (f"Authentication: {REDACTED}\r\nSafe-Header: visible")
+    unicode_key_json = (
+        r"{\"Authoriz\u0061tion\": \"Bearer synthetic-unicode\", \"safe\": \"visible\"}"
+    )
+    assert Redactor().text(unicode_key_json) == (
+        rf"{{\"Authoriz\u0061tion\": \"{REDACTED}\", \"safe\": \"visible\"}}"
+    )
+    safe_escaped_key = r"{\"authorization_status\": \"visible\"}"
+    assert Redactor().text(safe_escaped_key) == safe_escaped_key
 
 
 def test_quoted_assignments_redact_entire_multiword_value() -> None:
@@ -183,12 +191,31 @@ def test_empty_and_unterminated_assignment_values_fail_closed() -> None:
 
 
 @pytest.mark.parametrize(
-    "alias", ["access_token", "auth_key", "priv_key", "private_key", "passwd", "pwd"]
+    "alias",
+    [
+        "access_token",
+        "auth_key",
+        "priv_key",
+        "private_key",
+        "passwd",
+        "pwd",
+        "refresh_token",
+        "id_token",
+        "snmp_community",
+        "community_string",
+    ],
 )
 def test_exact_assignment_aliases_redact(alias: str) -> None:
     assert Redactor().text(f"safe {alias}=synthetic-value; adjacent=visible") == (
         f"safe {alias}={REDACTED}; adjacent=visible"
     )
+
+
+@pytest.mark.parametrize("separator", ["=>", "->", "::"])
+def test_arrow_and_double_colon_assignments_do_not_leak_suffixes(separator: str) -> None:
+    rendered = Redactor().text(f'access_token {separator} "synthetic quoted suffix"; safe=visible')
+    assert rendered == f"access_token {separator} {REDACTED}; safe=visible"
+    assert "suffix" not in rendered
 
 
 def test_secret_key_lookalikes_are_not_over_redacted() -> None:
@@ -242,6 +269,34 @@ def test_registered_secret_case_percent_and_hex_variants() -> None:
     redactor = Redactor([secret])
     for variant in variants:
         assert redactor.text(f"before {variant} after") == f"before {REDACTED} after"
+
+
+def test_registered_secret_form_mixed_percent_and_mixed_hex_variants() -> None:
+    secret = "Synthetic Value /ÿ!"
+    single = quote(secret, safe="").replace("%C3", "%c3").replace("%2F", "%2f")
+    double = quote(single, safe="").replace("%2F", "%2f")
+    form = quote(secret, safe="").replace("%20", "+")
+    mixed_hex = "".join(
+        character.upper() if index % 2 else character.lower()
+        for index, character in enumerate(secret.encode().hex())
+    )
+    redactor = Redactor([secret])
+    for variant in (single, double, form, mixed_hex):
+        assert redactor.text(f"before {variant} after") == f"before {REDACTED} after"
+
+
+def test_registered_secret_decoding_is_capped_at_two_passes() -> None:
+    secret = "Synthetic Value!"
+    once = quote(secret, safe="")
+    twice = quote(once, safe="")
+    three_times = quote(twice, safe="")
+    redactor = Redactor([secret])
+    assert redactor.text(twice) == REDACTED
+    assert redactor.text(three_times) == three_times
+
+
+def test_invalid_hex_candidate_is_preserved() -> None:
+    assert Redactor(["synthetic-value"]).text("before deadbeef after") == "before deadbeef after"
 
 
 def test_empty_user_uri_password_is_redacted() -> None:

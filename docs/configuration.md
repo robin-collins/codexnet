@@ -60,6 +60,12 @@ keys. Values shorter than four characters are not registered because broad
 replacement would corrupt ordinary output; such secrets must be rejected by a
 future provider policy.
 
+Encoded matching is deterministic and bounded: percent/form decoding performs
+at most two passes, covering single and double encoding without generating an
+unbounded transform set. Standard and URL-safe base64 (padded or unpadded) and
+mixed-case hexadecimal forms are also checked. Configuration URL authority,
+query-key, and fragment validation applies the same two-pass ceiling.
+
 Redaction is defense in depth, not permission to collect or persist sensitive
 fields. If safe output cannot be proven, the output boundary must reject it.
 Errors name only a configuration path and rule—never the rejected value or
