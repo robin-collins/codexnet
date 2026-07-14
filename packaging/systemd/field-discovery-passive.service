@@ -1,0 +1,69 @@
+[Unit]
+Description=CodexNet bounded passive network observer
+Documentation=file:/opt/field-discovery/docs/passive-service.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=15min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=field-discovery
+Group=field-discovery
+UMask=0077
+ExecStart=/opt/field-discovery/venv/bin/field-discovery-passive --config /etc/field-discovery/config.yaml
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=field-discovery-passive
+
+# Only the capture process receives the one capability needed for AF_PACKET.
+CapabilityBoundingSet=CAP_NET_RAW
+AmbientCapabilities=CAP_NET_RAW
+NoNewPrivileges=true
+
+# CodexNet configuration is read-only; only its owned state tree is writable.
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/field-discovery
+ReadWritePaths=/var/lib/field-discovery
+StateDirectory=field-discovery
+StateDirectoryMode=0750
+RuntimeDirectory=field-discovery
+RuntimeDirectoryMode=0750
+PrivateTmp=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_PACKET
+IPAddressDeny=any
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@mount @privileged @reboot @resources @swap
+PrivateMounts=true
+RemoveIPC=true
+
+# Bounded pipeline and service-level ceilings protect the co-resident appliance.
+MemoryHigh=192M
+MemoryMax=256M
+CPUQuota=40%
+TasksMax=32
+LimitNOFILE=256
+OOMPolicy=stop
+
+[Install]
+WantedBy=multi-user.target

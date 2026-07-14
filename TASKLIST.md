@@ -199,7 +199,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** fixture topology produces expected nodes/edges; conflicting sources remain visible; deterministic output hash is stable; unknown links are not presented as facts.
 - **Balance:** every inferred edge in the report identifies its evidence source and confidence.
 
-### [ ] T306 Package the passive system service
+### [x] T306 Package the passive system service
 
 - **Depends on:** T105, T300, T301, T302, T303, T304
 - **Deliver:** dedicated service account, minimum packet-capture capability, systemd unit, restart limits, resource limits, journald logging, and uninstall/rollback steps.

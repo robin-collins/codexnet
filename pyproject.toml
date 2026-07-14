@@ -14,6 +14,7 @@ dependencies = ["PyYAML==6.0.2"]
 
 [project.scripts]
 field-discovery = "field_discovery.cli:main"
+field-discovery-passive = "field_discovery.passive_service:main"
 
 [project.optional-dependencies]
 dev = [
