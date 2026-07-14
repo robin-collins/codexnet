@@ -49,7 +49,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** every component in `SPEC.md` maps to an architecture component; every secret and customer-data flow has a storage, access, logging, and deletion rule.
 - **Balance:** explicitly confirm no offensive AD functions, default credentials, unrestricted packet retention, cloud upload, or direct Scanopy database access.
 
-### [ ] T003 Define configuration and secret contracts
+### [x] T003 Define configuration and secret contracts
 
 - **Depends on:** T002
 - **Deliver:** versioned non-secret YAML schema, example configuration, secret-reference model, validation rules, safe defaults, and redaction contract.

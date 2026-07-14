@@ -1,0 +1,75 @@
+# CodexNet non-secret configuration schema v1. Copy outside Git for site-specific use.
+schema_version: 1
+
+interface:
+  name: eth0
+  allow_excluded_interface: false
+
+active:
+  # Empty is the safe default. Add only an explicitly authorised, directly connected range.
+  approved_ranges:
+    - 192.168.50.0/24
+  max_hosts: 256
+
+paths:
+  # Read-only input owned by the existing protected nmap process.
+  nmap_results: /var/log/network-discovery
+
+scheduler:
+  interval_seconds: 3600
+  jitter_seconds: 120
+  timeout_seconds: 30
+  retries: 1
+  concurrency: 4
+
+secret_providers:
+  appliance_env:
+    type: env_file
+    path: /etc/field-discovery/secrets.env
+  # A command receives the reference key on stdin and returns one secret on stdout.
+  # It is executed directly, without a shell or command-line secret.
+  secret_helper:
+    type: command
+    executable: /usr/local/libexec/field-discovery-secret
+    timeout_seconds: 5
+
+collectors:
+  snmp:
+    enabled: false
+    protocol: v3
+    allow_insecure_v2c: false
+    credential_ref:
+      provider: appliance_env
+      key: SNMP_SITE_PROFILE
+  unifi:
+    enabled: false
+    endpoints:
+      - url: https://unifi.example.invalid
+        verify_tls: true
+        allow_self_signed: false
+        credential_ref:
+          provider: appliance_env
+          key: UNIFI_SITE_PROFILE
+  ad:
+    enabled: false
+    transport: ldaps
+    allow_plaintext_ldap: false
+    domain: example.invalid
+    base_dn: DC=example,DC=invalid
+    credential_ref:
+      provider: appliance_env
+      key: AD_SITE_PROFILE
+  ssh:
+    enabled: false
+    host_key_policy: strict
+    credential_ref:
+      provider: secret_helper
+      key: SSH_SITE_PROFILE
+
+report:
+  confidentiality: Confidential
+  template: null
+
+retention:
+  detailed_days: 30
+  diagnostic_capture_hours: 24

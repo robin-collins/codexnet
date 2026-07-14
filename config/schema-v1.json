@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexnet.invalid/schema/config-v1.json",
+  "title": "CodexNet non-secret configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "interface": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "allow_excluded_interface": {"type": "boolean", "default": false}
+      }
+    },
+    "active": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "approved_ranges": {"type": "array", "items": {"type": "string"}, "default": []},
+        "max_hosts": {"type": "integer", "minimum": 1, "maximum": 1024, "default": 256}
+      }
+    },
+    "paths": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"nmap_results": {"type": "string", "pattern": "^/"}}
+    },
+    "scheduler": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "interval_seconds": {"type": "integer", "minimum": 60, "maximum": 604800, "default": 3600},
+        "jitter_seconds": {"type": "integer", "minimum": 0, "maximum": 3600, "default": 120},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300, "default": 30},
+        "retries": {"type": "integer", "minimum": 0, "maximum": 3, "default": 1},
+        "concurrency": {"type": "integer", "minimum": 1, "maximum": 16, "default": 4}
+      }
+    },
+    "secret_providers": {
+      "type": "object", "default": {},
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_-]{0,63}$"},
+      "additionalProperties": {"$ref": "#/$defs/provider"}
+    },
+    "collectors": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "snmp": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean", "default": false},
+            "protocol": {"enum": ["v3", "v2c"], "default": "v3"},
+            "allow_insecure_v2c": {"type": "boolean", "default": false},
+            "credential_ref": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/secretRef"}]}
+          }
+        },
+        "unifi": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean", "default": false},
+            "endpoints": {"type": "array", "items": {"$ref": "#/$defs/unifiEndpoint"}, "default": []}
+          }
+        },
+        "ad": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean", "default": false},
+            "transport": {"enum": ["kerberos", "ldaps", "ldap"], "default": "ldaps"},
+            "allow_plaintext_ldap": {"type": "boolean", "default": false},
+            "domain": {"type": ["string", "null"]},
+            "base_dn": {"type": ["string", "null"]},
+            "credential_ref": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/secretRef"}]}
+          }
+        },
+        "ssh": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean", "default": false},
+            "host_key_policy": {"enum": ["strict", "accept-new"], "default": "strict"},
+            "credential_ref": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/secretRef"}]}
+          }
+        }
+      }
+    },
+    "report": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "confidentiality": {"type": "string", "minLength": 1, "default": "Confidential"},
+        "template": {"type": ["string", "null"]}
+      }
+    },
+    "retention": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "detailed_days": {"type": "integer", "minimum": 1, "maximum": 365, "default": 30},
+        "diagnostic_capture_hours": {"type": "integer", "minimum": 1, "maximum": 168, "default": 24}
+      }
+    }
+  },
+  "$defs": {
+    "secretRef": {
+      "type": "object", "additionalProperties": false, "required": ["provider", "key"],
+      "properties": {
+        "provider": {"type": "string"},
+        "key": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,127}$"}
+      }
+    },
+    "provider": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false, "required": ["type", "path"],
+          "properties": {"type": {"const": "env_file"}, "path": {"type": "string", "pattern": "^/"}}
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["type", "executable"],
+          "properties": {
+            "type": {"const": "command"}, "executable": {"type": "string", "pattern": "^/"},
+            "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30, "default": 5}
+          }
+        }
+      ]
+    },
+    "unifiEndpoint": {
+      "type": "object", "additionalProperties": false,
+      "required": ["url", "verify_tls", "allow_self_signed", "credential_ref"],
+      "properties": {
+        "url": {"type": "string", "pattern": "^https://"},
+        "verify_tls": {"type": "boolean", "default": true},
+        "allow_self_signed": {"type": "boolean", "default": false},
+        "credential_ref": {"$ref": "#/$defs/secretRef"}
+      }
+    }
+  }
+}

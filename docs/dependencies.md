@@ -1,8 +1,9 @@
 # Dependency policy
 
-CodexNet targets CPython 3.11 through 3.13 on Debian Linux ARM64. Runtime code currently
-uses only the Python standard library, so the initial appliance install has no third-party
-runtime dependency or native-extension requirement.
+CodexNet targets CPython 3.11 through 3.13 on Debian Linux ARM64. PyYAML is the sole runtime
+dependency at T003 and is used only through `safe_load` for the operator configuration. Its
+pinned release supports these Python versions and has Linux AArch64 wheels as well as a pure
+Python fallback; CodexNet does not require an unreviewed native extension to load configuration.
 
 Build and quality tools are exact-version constrained in `requirements-dev.lock`. The selected
 Ruff, mypy, pytest, pytest-cov, coverage, and setuptools releases publish platform-independent

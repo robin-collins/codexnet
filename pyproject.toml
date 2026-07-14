@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = { text = "Proprietary" }
 authors = [{ name = "Robin Collins" }]
-dependencies = []
+dependencies = ["PyYAML==6.0.2"]
 
 [project.optional-dependencies]
 dev = [
@@ -19,6 +19,7 @@ dev = [
   "pytest==8.4.1",
   "pytest-cov==6.2.1",
   "ruff==0.12.4",
+  "types-PyYAML==6.0.12.20250516",
 ]
 
 [tool.setuptools]
