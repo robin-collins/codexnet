@@ -164,7 +164,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** replayed event load remains within configured memory; malformed frames cannot stop the service; shutdown drains or marks incomplete work.
 - **Balance:** no full packet payload is retained by default.
 
-### [ ] T301 Add LLDP and CDP observation
+### [x] T301 Add LLDP and CDP observation
 
 - **Depends on:** T300
 - **Deliver:** LLDP/CDP parsing for identity, ports, capabilities, management address, VLAN, and TTL using fixtures and/or `lldpd` structured output.
