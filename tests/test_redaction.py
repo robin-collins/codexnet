@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import base64
+import re
 from urllib.parse import quote
+
+import pytest
 
 from field_discovery.redaction import REDACTED, Redactor
 
@@ -124,6 +127,21 @@ def test_quoted_authorization_fields_and_exception_text_are_bounded() -> None:
     assert header_with_json_field == f'Authorization: {REDACTED}, "safe": "visible"'
 
 
+def test_bytes_escaped_and_authentication_fields_are_redacted() -> None:
+    bytes_repr = "{b'Authorization': b'Bearer synthetic-bytes', b'safe': b'visible'}"
+    assert Redactor().text(bytes_repr) == (
+        f"{{b'Authorization': b'{REDACTED}', b'safe': b'visible'}}"
+    )
+    escaped_json = r"{\"Authorization\": \"Bearer synthetic-escaped\", \"safe\": \"visible\"}"
+    assert Redactor().text(escaped_json) == (
+        rf"{{\"Authorization\": \"{REDACTED}\", \"safe\": \"visible\"}}"
+    )
+    folded = (
+        "Authentication: Custom synthetic-first\r\n synthetic-continuation\r\nSafe-Header: visible"
+    )
+    assert Redactor().text(folded) == (f"Authentication: {REDACTED}\r\nSafe-Header: visible")
+
+
 def test_quoted_assignments_redact_entire_multiword_value() -> None:
     rendered = Redactor().text(
         'safe-before password="synthetic double secret" safe-middle; '
@@ -135,6 +153,101 @@ def test_quoted_assignments_redact_entire_multiword_value() -> None:
     assert "synthetic" not in rendered
     assert "double secret" not in rendered
     assert "single secret" not in rendered
+
+
+def test_assignment_quotes_are_escape_aware_and_bounded() -> None:
+    rendered = Redactor().text(
+        r"""password="synthetic \"quoted\" and \\ path"; safe-double=visible; """
+        r"auth_key='synthetic \'quoted\' and \\ path'; safe-single=visible"
+    )
+    assert rendered == (
+        f"password={REDACTED}; safe-double=visible; auth_key={REDACTED}; safe-single=visible"
+    )
+    error = RuntimeError(r"failure pwd='synthetic \'repr\' value'; status=visible")
+    assert Redactor().exception(error) == (f"RuntimeError: failure pwd={REDACTED}; status=visible")
+
+
+def test_empty_and_unterminated_assignment_values_fail_closed() -> None:
+    rendered = Redactor().text(
+        'token="" safe-empty=visible\n'
+        "passwd='synthetic unterminated words\n"
+        "safe-next=visible\n"
+        'pwd="; safe-semicolon=visible'
+    )
+    assert rendered == (
+        f"token={REDACTED} safe-empty=visible\n"
+        f"passwd={REDACTED}\n"
+        "safe-next=visible\n"
+        f"pwd={REDACTED}; safe-semicolon=visible"
+    )
+
+
+@pytest.mark.parametrize(
+    "alias", ["access_token", "auth_key", "priv_key", "private_key", "passwd", "pwd"]
+)
+def test_exact_assignment_aliases_redact(alias: str) -> None:
+    assert Redactor().text(f"safe {alias}=synthetic-value; adjacent=visible") == (
+        f"safe {alias}={REDACTED}; adjacent=visible"
+    )
+
+
+def test_secret_key_lookalikes_are_not_over_redacted() -> None:
+    safe = (
+        "authorization_status=ok token_count=4 secretary=visible "
+        "community_name=public authentication_result=passed"
+    )
+    assert Redactor().text(safe) == safe
+    assert Redactor().value(
+        {
+            "authorization_status": "ok",
+            "token_count": 4,
+            "secretary": "visible",
+            "community_name": "public",
+        }
+    ) == {
+        "authorization_status": "ok",
+        "token_count": 4,
+        "secretary": "visible",
+        "community_name": "public",
+    }
+
+
+@pytest.mark.parametrize("secret", ["abcd", "abcde", "abcdef", "safe࠿"])
+def test_registered_secret_base64_padding_and_urlsafe_variants(secret: str) -> None:
+    raw = secret.encode()
+    variants = {
+        base64.b64encode(raw).decode(),
+        base64.b64encode(raw).decode().rstrip("="),
+        base64.urlsafe_b64encode(raw).decode(),
+        base64.urlsafe_b64encode(raw).decode().rstrip("="),
+    }
+    redactor = Redactor([secret])
+    for variant in variants:
+        assert redactor.text(f"before {variant} after") == f"before {REDACTED} after"
+
+
+def test_registered_secret_case_percent_and_hex_variants() -> None:
+    secret = "SYNTHETIC /ÿ!"
+    encoded = quote(secret, safe="")
+    encoded_lower = re.sub(r"%[0-9A-F]{2}", lambda match: match.group().lower(), encoded)
+    variants = {
+        secret.casefold(),
+        encoded,
+        encoded_lower,
+        quote(encoded, safe=""),
+        quote(encoded_lower, safe=""),
+        secret.encode().hex(),
+        secret.encode().hex().upper(),
+    }
+    redactor = Redactor([secret])
+    for variant in variants:
+        assert redactor.text(f"before {variant} after") == f"before {REDACTED} after"
+
+
+def test_empty_user_uri_password_is_redacted() -> None:
+    assert Redactor().text("before https://:synthetic-pass@example.invalid/path after") == (
+        f"before https://:{REDACTED}@example.invalid/path after"
+    )
 
 
 def test_exception_keeps_only_type_and_redacted_message() -> None:

@@ -123,6 +123,7 @@ def test_unsafe_targets_fail(ranges: object, max_hosts: int, message: str) -> No
         ("collectors.ad.transport", "ntlm", "must be kerberos"),
         ("collectors.ad.allow_plaintext_ldap", "yes", "true or false"),
         ("collectors.ssh.host_key_policy", "ignore", "strict or accept-new"),
+        ("collectors.unifi.endpoints.0.url", None, "must use https"),
         ("collectors.unifi.endpoints.0.url", "http://controller.invalid", "must use https"),
         ("collectors.unifi.endpoints.0.verify_tls", "yes", "true or false"),
         ("collectors.unifi.endpoints.0.allow_self_signed", "yes", "true or false"),
@@ -148,6 +149,29 @@ def test_insecure_protocols_require_explicit_scoped_opt_in() -> None:
     with pytest.raises(ConfigurationError, match="explicit allow_self_signed"):
         validate_config(tls)
     assert validate_config(set_path(tls, "collectors.unifi.endpoints.0.allow_self_signed", True))
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:synthetic@example.invalid",
+        "https://:synthetic@example.invalid",
+        "https://example.invalid/?access_token=synthetic",
+        "https://example.invalid/?access%5Ftoken=synthetic",
+        "https://example.invalid/?client_secret=synthetic",
+    ],
+)
+def test_controller_urls_reject_embedded_credentials(url: str) -> None:
+    document = set_path(example(), "collectors.unifi.endpoints.0.url", url)
+    with pytest.raises(ConfigurationError, match="must not contain") as caught:
+        validate_config(document)
+    assert "synthetic" not in str(caught.value)
+
+
+def test_controller_url_allows_safe_lookalike_query_and_serializes_it() -> None:
+    url = "https://example.invalid/?token_count=4&authorization_status=ok"
+    document = set_path(example(), "collectors.unifi.endpoints.0.url", url)
+    assert url in validate_config(document).serialized()
 
 
 def test_enabled_ad_requires_approved_domain_and_base_dn() -> None:

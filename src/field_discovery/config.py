@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 import yaml
 
@@ -17,8 +18,11 @@ _REFERENCE_KEY = re.compile(r"^[A-Z][A-Z0-9_]{2,127}$")
 _NAME = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _INLINE_SECRET_KEYS = {
     "password",
+    "passwd",
+    "pwd",
     "passphrase",
     "token",
+    "access_token",
     "api_key",
     "community",
     "private_key",
@@ -355,8 +359,20 @@ def _validate_protocols(collectors: dict[str, Any]) -> None:
         raise ConfigurationError("collectors.ssh.host_key_policy must be strict or accept-new")
     for index, endpoint in enumerate(collectors["unifi"]["endpoints"]):
         path = f"collectors.unifi.endpoints[{index}]"
-        if not isinstance(endpoint.get("url"), str) or not endpoint["url"].startswith("https://"):
+        url = endpoint.get("url")
+        if not isinstance(url, str):
             raise ConfigurationError(f"{path}.url must use https://")
+        parsed = urlsplit(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ConfigurationError(f"{path}.url must use https://")
+        if "@" in parsed.netloc:
+            raise ConfigurationError(f"{path}.url must not contain userinfo credentials")
+        sensitive_query_keys = _INLINE_SECRET_KEYS | {"client_secret"}
+        if any(
+            key.casefold() in sensitive_query_keys
+            for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+        ):
+            raise ConfigurationError(f"{path}.url must not contain credential query parameters")
         _boolean(endpoint.get("verify_tls"), f"{path}.verify_tls")
         _boolean(endpoint.get("allow_self_signed"), f"{path}.allow_self_signed")
         if not endpoint["verify_tls"] and not endpoint["allow_self_signed"]:
