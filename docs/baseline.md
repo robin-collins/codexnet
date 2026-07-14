@@ -60,7 +60,7 @@ The existing script was observed without reading or changing its contents:
 |---|---|
 | Path | `/usr/local/sbin/network-discovery-scan.sh` |
 | SHA-256 | `09bfdfd6d034c38882dfddf7cb648d64fc326fcf164f4c68ae49cb103eb2e526` |
-| Mode and owner | `0755`, `nobody:nogroup` |
+| Mode and owner | `0755`, `root:root` |
 | Size | 9,018 bytes |
 | Modification time | 2026-07-14 22:07:29 +09:30 |
 
@@ -70,10 +70,16 @@ A read-only search found no `network-discovery`, `network-discovery-scan`, or
 `nmap` entry in `/etc/crontab`, `/etc/cron.d`, the standard periodic cron
 directories, or `/var/spool/cron`. No matching systemd timer was listed.
 
-This differs from the expected protected state in `SPEC.md` and `AGENTS.md`,
-which says a root cron schedule exists. Later gates must compare against the
-observed absence recorded here and must not create, replace, or reschedule an
-active scan without explicit user approval.
+`SPEC.md` and `AGENTS.md` now record this verified scheduling discrepancy.
+Later gates must compare against the observed absence recorded here and must
+not create, replace, or reschedule an active scan without explicit user
+approval.
+
+The initial restricted T000 execution view reported script ownership as
+`nobody:nogroup`. A direct full-access `stat` during the G1 audit reported the
+actual host ownership as `root:root`; checksum, size, mode, and nanosecond mtime
+were identical. The ownership row above records the host value for subsequent
+gates.
 
 ## Repeatable read-only checks
 
