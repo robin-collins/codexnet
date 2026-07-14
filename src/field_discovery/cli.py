@@ -1,0 +1,160 @@
+"""Offline-safe command-line application shell."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import sys
+import uuid
+from collections.abc import Sequence
+from enum import IntEnum
+from pathlib import Path
+from typing import Any, NoReturn, cast
+
+from field_discovery import __version__
+from field_discovery.config import ConfigurationError, load_config
+from field_discovery.logging import configure_logging
+
+DEFAULT_CONFIG = Path("/etc/field-discovery/config.yaml")
+
+
+class ExitCode(IntEnum):
+    """Stable process exit codes forming part of the operator contract."""
+
+    SUCCESS = 0
+    USAGE = 2
+    CONFIGURATION = 3
+    NOT_IMPLEMENTED = 4
+    INTERNAL = 70
+
+
+class CliParser(argparse.ArgumentParser):
+    """Argument parser whose usage failures use the stable usage code."""
+
+    def error(self, message: str) -> NoReturn:
+        self.print_usage(sys.stderr)
+        self.exit(int(ExitCode.USAGE), f"{self.prog}: error: {message}\n")
+
+
+def _command_parser(subparsers: Any, name: str, help_text: str) -> argparse.ArgumentParser:
+    return cast(argparse.ArgumentParser, subparsers.add_parser(name, help=help_text))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the complete SPEC command tree without performing I/O."""
+    parser = CliParser(prog="field-discovery", description="CodexNet field discovery appliance")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="non-secret YAML path")
+    parser.add_argument("--json", action="store_true", dest="json_mode", help="emit JSON output")
+    commands = parser.add_subparsers(dest="group", required=True)
+
+    config = _command_parser(commands, "config", "configuration operations")
+    config_sub = config.add_subparsers(dest="action", required=True)
+    _command_parser(config_sub, "validate", "validate non-secret configuration")
+
+    _command_parser(commands, "status", "show appliance status")
+    discover = _command_parser(commands, "discover", "safe discovery operations")
+    discover_sub = discover.add_subparsers(dest="action", required=True)
+    _command_parser(discover_sub, "subnet", "resolve the selected interface and subnet")
+
+    collect = _command_parser(commands, "collect", "collector operations")
+    collect_sub = collect.add_subparsers(dest="action", required=True)
+    passive = _command_parser(collect_sub, "passive", "passive observer operations")
+    passive_sub = passive.add_subparsers(dest="detail", required=True)
+    _command_parser(passive_sub, "status", "show passive observer status")
+    snmp = _command_parser(collect_sub, "snmp", "run SNMP collection")
+    snmp.add_argument("--target", action="append")
+    unifi = _command_parser(collect_sub, "unifi", "run UniFi collection")
+    unifi.add_argument("--controller", action="append")
+    ad = _command_parser(collect_sub, "ad", "run Active Directory collection")
+    ad.add_argument("--domain")
+    ssh = _command_parser(collect_sub, "ssh", "run network-device SSH collection")
+    ssh.add_argument("--target", action="append")
+
+    import_group = _command_parser(commands, "import", "artifact import operations")
+    import_sub = import_group.add_subparsers(dest="action", required=True)
+    nmap_import = _command_parser(import_sub, "nmap", "import nmap XML")
+    nmap_import.add_argument("--path", type=Path)
+
+    scan = _command_parser(commands, "scan", "explicit active scan operations")
+    scan_sub = scan.add_subparsers(dest="action", required=True)
+    _command_parser(scan_sub, "nmap", "explicitly invoke the protected nmap script")
+
+    report = _command_parser(commands, "report", "report operations")
+    report_sub = report.add_subparsers(dest="action", required=True)
+    generate = _command_parser(report_sub, "generate", "generate a report")
+    generate.add_argument("--format", choices=("docx",), default="docx")
+    validate = _command_parser(report_sub, "validate", "validate a DOCX report")
+    validate.add_argument("report", type=Path)
+
+    database = _command_parser(commands, "db", "database operations")
+    database_sub = database.add_subparsers(dest="action", required=True)
+    _command_parser(database_sub, "check", "check database integrity")
+    _command_parser(database_sub, "backup", "back up the database")
+    _command_parser(database_sub, "prune", "prune data according to retention policy")
+    _command_parser(commands, "doctor", "run appliance diagnostics")
+    return parser
+
+
+def _command_name(arguments: argparse.Namespace) -> str:
+    parts = [arguments.group]
+    for name in ("action", "detail"):
+        value = getattr(arguments, name, None)
+        if value:
+            parts.append(value)
+    return " ".join(parts)
+
+
+def _emit(payload: dict[str, Any], *, json_mode: bool) -> None:
+    if json_mode:
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        return
+    print(str(payload["message"]))
+
+
+def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
+    """Run the CLI and return a stable exit status."""
+    arguments = build_parser().parse_args(argv)
+    actual_run_id = run_id or str(uuid.uuid4())
+    logger = configure_logging(json_mode=arguments.json_mode, run_id=actual_run_id)
+    command = _command_name(arguments)
+    try:
+        load_config(arguments.config)
+    except ConfigurationError as exc:
+        logger.error("configuration_invalid", extra={"command": command, "reason": str(exc)})
+        _emit(
+            {"ok": False, "command": command, "message": f"Configuration invalid: {exc}"},
+            json_mode=arguments.json_mode,
+        )
+        return int(ExitCode.CONFIGURATION)
+    if command == "config validate":
+        logger.info("configuration_valid", extra={"command": command})
+        _emit(
+            {"ok": True, "command": command, "message": "Configuration is valid."},
+            json_mode=arguments.json_mode,
+        )
+        return int(ExitCode.SUCCESS)
+    logger.warning("command_unavailable", extra={"command": command})
+    _emit(
+        {
+            "ok": False,
+            "command": command,
+            "message": f"Command is not implemented yet: {command}",
+        },
+        json_mode=arguments.json_mode,
+    )
+    return int(ExitCode.NOT_IMPLEMENTED)
+
+
+def main() -> NoReturn:
+    """Installed console entry point."""
+    try:
+        code = run()
+    except KeyboardInterrupt:
+        logging.getLogger("field_discovery").warning("interrupted")
+        code = 130
+    except Exception:
+        logging.getLogger("field_discovery").exception("unexpected_error")
+        code = int(ExitCode.INTERNAL)
+    raise SystemExit(code)

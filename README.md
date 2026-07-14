@@ -30,6 +30,21 @@ Run the standard local checks:
 The test command includes branch coverage and currently requires 100% coverage. See
 [docs/dependencies.md](docs/dependencies.md) for dependency and ARM64 compatibility policy.
 
+## Command-line shell
+
+The installed command is `field-discovery`. It accepts a non-secret configuration path and can
+emit either concise operator text or newline-delimited structured JSON:
+
+```bash
+field-discovery --config config/example.yaml config validate
+field-discovery --json --config config/example.yaml config validate
+```
+
+Help and version output do not read configuration, require root, or contact the network. Commands
+whose implementation belongs to later tasks are visible in help and exit explicitly with status 4.
+Stable statuses are 0 (success), 2 (usage), 3 (invalid configuration), 4 (not implemented), and 70
+(unexpected internal failure).
+
 ## Safety
 
 Use CodexNet only on networks for which you have explicit authorisation. Collectors are intended to be passive or read-only and must not expose customer credentials or data.

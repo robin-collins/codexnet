@@ -64,7 +64,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 
 ## Stage 1 — Application foundation and normalized storage
 
-### [ ] T100 Build the application shell and CLI
+### [x] T100 Build the application shell and CLI
 
 - **Depends on:** G0
 - **Deliver:** installable `field-discovery` package with structured logging, stable exit codes, human/JSON output modes, config loading, and placeholder command groups matching `SPEC.md`.
