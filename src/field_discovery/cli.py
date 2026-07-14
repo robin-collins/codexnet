@@ -18,13 +18,25 @@ from typing import Any, NoReturn, cast
 from urllib.parse import urlsplit
 
 from field_discovery import __version__
-from field_discovery.collectors import CollectorContext, CollectorError, CredentialReference
+from field_discovery.artifacts import ArtifactStore
+from field_discovery.collectors import (
+    CollectorContext,
+    CollectorError,
+    CollectorOrchestrator,
+    CollectorRequest,
+    CredentialReference,
+)
 from field_discovery.config import ConfigurationError, load_config
 from field_discovery.logging import configure_logging
 from field_discovery.nmap_import import NmapImportError, import_nmap_artifacts
 from field_discovery.nmap_scan import ScanLaunchError, run_nmap_scan
 from field_discovery.reporting import ReportError, generate_reports, validate_docx
 from field_discovery.repository import Repository, RepositoryError, RetentionCutoffs
+from field_discovery.ssh_collection import (
+    ConfigSecretResolver,
+    NetmikoSessionFactory,
+    NetworkDeviceSSHCollector,
+)
 from field_discovery.subnet import SubnetResolutionError, resolve_subnet
 from field_discovery.unifi import (
     UniFiCollector,
@@ -93,7 +105,13 @@ def build_parser() -> argparse.ArgumentParser:
     ad = _command_parser(collect_sub, "ad", "run Active Directory collection")
     ad.add_argument("--domain")
     ssh = _command_parser(collect_sub, "ssh", "run network-device SSH collection")
-    ssh.add_argument("--target", action="append")
+    ssh.add_argument("--target", action="append", required=True)
+    ssh.add_argument(
+        "--platform",
+        choices=("cisco_ios", "hp_comware", "aruba_aos"),
+        required=True,
+        help="explicit conservative platform selection for the approved targets",
+    )
 
     import_group = _command_parser(commands, "import", "artifact import operations")
     import_sub = import_group.add_subparsers(dest="action", required=True)
@@ -334,6 +352,88 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
         finally:
             if unifi_repository is not None:
                 unifi_repository.close()
+    if command == "collect ssh":
+        paths = configuration.data["paths"]
+        settings = configuration.data["collectors"]["ssh"]
+        reference = CredentialReference.from_mapping(settings["credential_ref"])
+        if reference is None:
+            _emit(
+                {
+                    "ok": False,
+                    "command": command,
+                    "message": "SSH collection requires a configured credential reference.",
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.CONFIGURATION)
+        ssh_repository: Repository | None = None
+        try:
+            data_root = Path(paths["data_root"])
+            ssh_repository = Repository.open(Path(paths["database"]), data_root=data_root)
+            timestamp = datetime.now(UTC)
+            deployment_id = ssh_repository.upsert_deployment(
+                "default", "Default deployment", timestamp.isoformat()
+            )
+            ssh_collector = NetworkDeviceSSHCollector(
+                repository=ssh_repository,
+                deployment_id=deployment_id,
+                artifact_store=ArtifactStore(
+                    data_root / "artifacts" / "ssh", redactor=ssh_repository.redactor
+                ),
+                session_factory=NetmikoSessionFactory(),
+                secret_resolver=ConfigSecretResolver(configuration.data["secret_providers"]),
+                platform=arguments.platform,
+                host_key_policy=settings["host_key_policy"],
+                retention=timedelta(days=configuration.data["retention"]["detailed_days"]),
+            )
+            scheduler = configuration.data["scheduler"]
+            orchestrator = CollectorOrchestrator(
+                repository=ssh_repository,
+                deployment_id=deployment_id,
+                approved_ranges=configuration.data["active"]["approved_ranges"],
+                collectors={"ssh": ssh_collector},
+                concurrency=1,
+                timeout_seconds=scheduler["timeout_seconds"],
+                retries=scheduler["retries"],
+                interface_name=configuration.data["interface"]["name"],
+            )
+            summaries = asyncio.run(
+                orchestrator.run(
+                    [
+                        CollectorRequest("ssh", target, reference)
+                        for target in cast(list[str], arguments.target)
+                    ]
+                )
+            )
+            failed = sum(summary.status not in {"succeeded", "partial"} for summary in summaries)
+            partial = sum(summary.status == "partial" for summary in summaries)
+            total = sum(summary.item_count for summary in summaries)
+            ok = failed == 0
+            _emit(
+                {
+                    "ok": ok,
+                    "command": command,
+                    "message": (
+                        f"SSH collection: {total} facts, {partial} partial, "
+                        f"{failed} failed targets."
+                    ),
+                    "facts": total,
+                    "partial": partial,
+                    "failures": failed,
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.SUCCESS if ok else ExitCode.COLLECTOR)
+        except (CollectorError, RepositoryError, sqlite3.Error, OSError) as exc:
+            logger.error("ssh_collection_failed", extra={"command": command, "reason": str(exc)})
+            _emit(
+                {"ok": False, "command": command, "message": f"SSH collection failed: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.COLLECTOR)
+        finally:
+            if ssh_repository is not None:
+                ssh_repository.close()
     if command == "import nmap":
         paths = configuration.data["paths"]
         repository: Repository | None = None

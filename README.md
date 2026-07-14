@@ -106,3 +106,16 @@ collectors remain disabled until their corresponding implementation task is comp
 Configured UniFi OS and legacy controllers can be queried with `collect unifi`. Detection uses
 existing evidence only, controller TLS verification is strict by default, and API reads are
 bounded and allowlisted. See [docs/unifi-collection.md](docs/unifi-collection.md).
+
+Authorised Cisco IOS, HP/HPE Comware, and ArubaOS-Switch targets can be queried through the
+read-only SSH adapter. The command requires both an approved IPv4 target and an explicit platform;
+credentials are resolved only through the configured opaque reference and never accepted on the
+command line:
+
+```bash
+field-discovery --config /etc/field-discovery/config.yaml collect ssh \
+  --target 192.168.50.20 --platform cisco_ios
+```
+
+Every device command is checked against an exact platform allowlist, and bounded raw output is
+redacted before retention. See [docs/ssh-collection.md](docs/ssh-collection.md).

@@ -235,7 +235,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** sanitized vendor fixtures map correctly, preserve units/time, and tolerate missing/unknown values.
 - **Balance:** values include collection time and source; firmware audit reports versions only, not unsupported vulnerability claims.
 
-### [ ] T403 Implement Cisco/HP/Aruba SSH collection
+### [x] T403 Implement Cisco/HP/Aruba SSH collection
 
 - **Depends on:** T105, T400
 - **Deliver:** conservative platform selection, Netmiko/TextFSM adapters, approved read-only command sets, sanitized raw artifacts, and `collect ssh`.

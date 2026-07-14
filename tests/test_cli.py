@@ -102,7 +102,6 @@ def test_validate_json_output_and_logs_are_machine_readable(
         ("collect", "passive", "status"),
         ("collect", "snmp", "--target", "192.168.50.10"),
         ("collect", "ad", "--domain", "example.invalid"),
-        ("collect", "ssh", "--target", "192.168.50.20"),
         ("doctor",),
     ],
 )
@@ -179,6 +178,146 @@ def test_collect_unifi_cli_records_safe_controller_and_repository_failures(
         cli.run(["--config", str(config_path), "collect", "unifi"], run_id="unifi-db-fail")
         == cli.ExitCode.COLLECTOR
     )
+    assert "offline" in capsys.readouterr().out
+
+
+def test_collect_ssh_cli_uses_explicit_platform_and_opaque_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, root = database_config(tmp_path)
+    connections: list[tuple[str, str, object, str]] = []
+
+    class FakeSession:
+        async def run(self, command: str, *, structured: bool) -> object:
+            return [{"command": command}] if structured else "paging disabled"
+
+        async def close(self) -> None:
+            return None
+
+    class FakeFactory:
+        async def connect(
+            self,
+            target: str,
+            platform: str,
+            credential: object,
+            *,
+            host_key_policy: str,
+        ) -> FakeSession:
+            connections.append((target, platform, credential, host_key_policy))
+            return FakeSession()
+
+    class FakeResolver:
+        def __init__(self, _providers: object) -> None:
+            pass
+
+        def resolve(self, reference: object) -> dict[str, str]:
+            assert reference is not None
+            return {"username": "operator", "password": "synthetic-secret"}
+
+    monkeypatch.setattr(cli, "NetmikoSessionFactory", FakeFactory)
+    monkeypatch.setattr(cli, "ConfigSecretResolver", FakeResolver)
+    code = cli.run(
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "collect",
+            "ssh",
+            "--target",
+            "192.168.50.20",
+            "--platform",
+            "aruba_aos",
+        ],
+        run_id="ssh-run",
+    )
+    assert code == cli.ExitCode.SUCCESS
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["facts"] > 0
+    assert (payload["partial"], payload["failures"]) == (0, 0)
+    assert connections[0][0:2] == ("192.168.50.20", "aruba_aos")
+    assert connections[0][3] == "strict"
+    assert list((root / "artifacts" / "ssh").glob("*.txt"))
+
+
+def test_collect_ssh_cli_reports_partial_and_failed_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, _root = database_config(tmp_path)
+
+    class FakeResolver:
+        def __init__(self, _providers: object) -> None:
+            pass
+
+        def resolve(self, _reference: object) -> dict[str, str]:
+            return {"username": "operator", "password": "synthetic-secret"}
+
+    class RawSession:
+        async def run(self, _command: str, *, structured: bool) -> object:
+            return "raw fallback"
+
+        async def close(self) -> None:
+            return None
+
+    class RawFactory:
+        async def connect(self, *_args: object, **_kwargs: object) -> RawSession:
+            return RawSession()
+
+    monkeypatch.setattr(cli, "ConfigSecretResolver", FakeResolver)
+    monkeypatch.setattr(cli, "NetmikoSessionFactory", RawFactory)
+    arguments = [
+        "--config",
+        str(config_path),
+        "collect",
+        "ssh",
+        "--target",
+        "192.168.50.20",
+        "--platform",
+        "cisco_ios",
+    ]
+    assert cli.run(arguments, run_id="ssh-partial") == cli.ExitCode.SUCCESS
+    assert "1 partial" in capsys.readouterr().out
+
+    class FailingFactory:
+        async def connect(self, *_args: object, **_kwargs: object) -> object:
+            raise cli.CollectorError("synthetic SSH refusal")
+
+    monkeypatch.setattr(cli, "NetmikoSessionFactory", FailingFactory)
+    assert cli.run(arguments, run_id="ssh-failed") == cli.ExitCode.COLLECTOR
+    assert "1 failed" in capsys.readouterr().out
+
+
+def test_collect_ssh_cli_rejects_missing_reference_target_and_repository_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, _root = database_config(tmp_path)
+    arguments = [
+        "--config",
+        str(config_path),
+        "collect",
+        "ssh",
+        "--target",
+        "192.168.51.20",
+        "--platform",
+        "hp_comware",
+    ]
+    assert cli.run(arguments, run_id="ssh-target") == cli.ExitCode.COLLECTOR
+    assert "outside approved" in capsys.readouterr().out
+
+    document = yaml.safe_load(config_path.read_text())
+    document["collectors"]["ssh"]["credential_ref"] = None
+    config_path.write_text(yaml.safe_dump(document))
+    assert cli.run(arguments, run_id="ssh-reference") == cli.ExitCode.CONFIGURATION
+    assert "credential reference" in capsys.readouterr().out
+
+    document["collectors"]["ssh"]["credential_ref"] = {
+        "provider": "secret_helper",
+        "key": "SSH_SITE_PROFILE",
+    }
+    config_path.write_text(yaml.safe_dump(document))
+    monkeypatch.setattr(
+        cli.Repository, "open", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline"))
+    )
+    assert cli.run(arguments, run_id="ssh-offline") == cli.ExitCode.COLLECTOR
     assert "offline" in capsys.readouterr().out
 
 
