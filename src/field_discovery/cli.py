@@ -163,6 +163,40 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
             json_mode=arguments.json_mode,
         )
         return int(ExitCode.SUCCESS)
+    if command == "status":
+        paths = configuration.data["paths"]
+        status_repository: Repository | None = None
+        try:
+            status_repository = Repository.open(
+                Path(paths["database"]), data_root=Path(paths["data_root"])
+            )
+            runs = status_repository.recent_collector_runs()
+            message = (
+                "No collector runs recorded."
+                if not runs
+                else f"Collector runs: {len(runs)} shown; latest {runs[0]['collector']} "
+                f"{runs[0]['status']}."
+            )
+            _emit(
+                {
+                    "ok": True,
+                    "command": command,
+                    "message": message,
+                    "collector_runs": list(runs),
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.SUCCESS)
+        except (RepositoryError, sqlite3.Error, OSError) as exc:
+            logger.error("status_failed", extra={"command": command, "reason": str(exc)})
+            _emit(
+                {"ok": False, "command": command, "message": f"Status failed: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.DATABASE)
+        finally:
+            if status_repository is not None:
+                status_repository.close()
     if command == "discover subnet":
         try:
             description = resolve_subnet(configuration.data)

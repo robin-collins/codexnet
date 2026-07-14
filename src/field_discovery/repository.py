@@ -281,6 +281,47 @@ class Repository:
             if cursor.rowcount != 1:
                 raise RepositoryError("collector run is missing or already final")
 
+    def record_collector_error(
+        self,
+        run_id: int,
+        *,
+        category: str,
+        detail: str,
+        retryable: bool,
+        source: str,
+        observed_at: str,
+    ) -> int:
+        """Persist one redacted collector issue without exposing exception arguments."""
+        values = (
+            run_id,
+            self.redactor.text(category),
+            self.redactor.text(detail),
+            int(retryable),
+            self.redactor.text(source),
+            observed_at,
+        )
+        with self.transaction():
+            cursor = self.connection.execute(
+                "INSERT INTO collector_errors"
+                "(collector_run_id, category, detail, retryable, source, observed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                values,
+            )
+        return cast(int, cursor.lastrowid)
+
+    def recent_collector_runs(self, *, limit: int = 20) -> tuple[dict[str, Any], ...]:
+        """Return bounded, newest-first run status with aggregate error counts."""
+        if not 1 <= limit <= 1_000:
+            raise RepositoryError("collector run status limit must be from 1 to 1000")
+        rows = self.connection.execute(
+            "SELECT r.id, r.collector, r.status, r.interface_name, r.target_cidr, "
+            "r.started_at, r.finished_at, r.item_count, COUNT(e.id) AS error_count "
+            "FROM collector_runs r LEFT JOIN collector_errors e ON e.collector_run_id = r.id "
+            "GROUP BY r.id ORDER BY r.id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return tuple(dict(row) for row in rows)
+
     def recover_interrupted_runs(self, observed_at: str) -> int:
         """Mark unfinished runs failed and retain an explicit interruption error."""
         with self.transaction():

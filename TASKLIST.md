@@ -214,7 +214,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 
 ## Stage 4 — SNMP and network-device SSH collection
 
-### [ ] T400 Build the collector framework and scheduler
+### [x] T400 Build the collector framework and scheduler
 
 - **Depends on:** G1
 - **Deliver:** independent collector lifecycle, target approval, credential references, bounded concurrency, jitter, timeouts/retries, run status, cancellation, and failure isolation.

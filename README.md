@@ -98,3 +98,7 @@ field-discovery --config /etc/field-discovery/config.yaml db prune
 ## Safety
 
 Use CodexNet only on networks for which you have explicit authorisation. Collectors are intended to be passive or read-only and must not expose customer credentials or data.
+
+Collector lifecycle, target approval, bounded scheduling, cancellation, and durable run status are
+documented in [docs/collector-framework.md](docs/collector-framework.md). Protocol-specific active
+collectors remain disabled until their corresponding implementation task is complete.

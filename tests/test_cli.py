@@ -99,7 +99,6 @@ def test_validate_json_output_and_logs_are_machine_readable(
 @pytest.mark.parametrize(
     "arguments",
     [
-        ("status",),
         ("collect", "passive", "status"),
         ("collect", "snmp", "--target", "192.168.50.10"),
         ("collect", "unifi", "--controller", "https://controller.invalid"),
@@ -115,6 +114,43 @@ def test_spec_placeholder_commands_are_present_and_explicit(
     captured = capsys.readouterr()
     assert "not implemented yet" in captured.out
     assert "command_unavailable" in captured.err
+
+
+def test_status_reports_recent_collector_runs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, root = database_config(tmp_path)
+    repo = Repository.open(root / "discovery.db", data_root=root)
+    deployment = repo.upsert_deployment("fixture", "Fixture", "2026-01-01T00:00:00+00:00")
+    run_id = repo.start_run(deployment, "fixture", "2026-01-01T00:00:00+00:00")
+    repo.finish_run(run_id, "succeeded", "2026-01-01T00:00:01+00:00", 3)
+    repo.close()
+    assert (
+        cli.run(["--json", "--config", str(config_path), "status"], run_id="status-run")
+        == cli.ExitCode.SUCCESS
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["collector_runs"][0]["collector"] == "fixture"
+    assert payload["collector_runs"][0]["item_count"] == 3
+
+
+def test_status_handles_empty_and_repository_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, _root = database_config(tmp_path)
+    assert cli.run(["--config", str(config_path), "status"], run_id="empty") == 0
+    assert capsys.readouterr().out == "No collector runs recorded.\n"
+
+    def fail(*_args: object, **_kwargs: object) -> Repository:
+        raise RepositoryError("fixture unavailable")
+
+    monkeypatch.setattr(cli.Repository, "open", fail)
+    assert (
+        cli.run(["--config", str(config_path), "status"], run_id="failed") == cli.ExitCode.DATABASE
+    )
+    captured = capsys.readouterr()
+    assert "Status failed" in captured.out
+    assert "status_failed" in captured.err
 
 
 def test_scan_requires_explicit_noninteractive_confirmation(
