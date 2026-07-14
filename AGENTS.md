@@ -14,9 +14,9 @@ If the three disagree, stop and resolve the conflict with the user. Do not silen
 
 ## Current protected state
 
-The Pi's headless base setup, Scanopy deployment, `/usr/local/sbin/network-discovery-scan.sh`, its root cron schedule, and automatic interface-derived subnet behavior already exist. Treat them as external dependencies.
+The Pi's headless base setup, Scanopy deployment, `/usr/local/sbin/network-discovery-scan.sh`, and automatic interface-derived subnet behavior already exist. A root cron schedule was expected, but T000 found no root/user/system cron entry or matching systemd timer. Treat the existing components and documented scheduling discrepancy as protected external state.
 
-- Do not replace, reschedule, or edit the existing nmap script/cron without explicit user approval.
+- Do not edit the existing nmap script or create, replace, or reschedule nmap cron/timers without explicit user approval.
 - Do not create a competing automatic active-scan schedule.
 - Do not access or modify Scanopy's private database.
 - Recheck Scanopy and nmap/cron health at every stage gate.
@@ -43,7 +43,7 @@ The Pi's headless base setup, Scanopy deployment, `/usr/local/sbin/network-disco
 - SNMPv3 is preferred; SNMPv2c requires explicit configuration. Never guess community strings.
 - TLS verification stays enabled unless a specific endpoint has an explicit self-signed-certificate exception.
 - No framework-controlled external upload. DOCX upload to IT Glue, Datto RMM, or Autotask is manual.
-- Active scan targets must pass configured interface/range safeguards. Only the existing cron schedules nmap; `scan nmap` is an explicit operator action.
+- Active scan targets must pass configured interface/range safeguards. No scheduled nmap job was present at T000; do not create one implicitly. `scan nmap` is an explicit operator action.
 
 ## Secrets and customer data
 
