@@ -335,7 +335,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** fresh-system walkthrough by a second operator or clean test environment succeeds using only documented steps.
 - **Balance:** examples use placeholders/sanitized data and never recommend broad privileges or insecure defaults.
 
-### [ ] T605 Run performance, soak, and failure testing
+### [x] T605 Run performance, soak, and failure testing
 
 - **Depends on:** T601, T602, T603
 - **Deliver:** representative multi-day replay/soak, resource measurements alongside Scanopy, collector outage/recovery tests, database growth projection, and report timing/size results.

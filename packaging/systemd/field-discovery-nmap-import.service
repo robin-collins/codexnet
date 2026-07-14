@@ -40,3 +40,5 @@ RestrictRealtime=true
 RestrictNamespaces=true
 RestrictAddressFamilies=AF_UNIX
 SystemCallArchitectures=native
+MemoryMax=256M
+TasksMax=32

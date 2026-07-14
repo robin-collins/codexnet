@@ -111,6 +111,7 @@ def test_systemd_timer_is_persistent_bounded_and_never_launches_nmap() -> None:
     assert "StartLimitIntervalSec=15min" in service
     assert "StartLimitBurst=5" in service
     assert "TimeoutStartSec=5min" in service
+    assert "MemoryMax=256M" in service and "TasksMax=32" in service
 
     assert "Persistent=true" in timer
     assert "OnBootSec=2min" in timer
