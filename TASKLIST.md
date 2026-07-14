@@ -28,7 +28,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 
 ## Stage 0 — Scope, baseline, and design controls
 
-### [ ] T000 Record the appliance baseline
+### [x] T000 Record the appliance baseline
 
 - **Depends on:** none
 - **Deliver:** `docs/baseline.md` documenting OS/architecture, Python, installed tools, selected interface, existing Scanopy containers/services, existing nmap script checksum/path, cron entry, and current resource/disk use. Do not record credentials or customer identifiers.
