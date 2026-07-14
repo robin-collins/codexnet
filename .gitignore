@@ -23,6 +23,7 @@ dist/
 artifacts/
 reports/
 logs/
+.tmp-*/
 
 # Credentials and local configuration
 .env
