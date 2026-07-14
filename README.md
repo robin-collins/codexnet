@@ -69,7 +69,10 @@ field-discovery --config /etc/field-discovery/config.yaml import nmap
 
 `report generate` writes a paired, self-contained DOCX and deterministic JSON inventory under
 the CodexNet data root. The report includes collection coverage, device and service inventories,
-evidence source/age/confidence, conflicts, and explicit limitations. `report validate` checks
+evidence source/age/confidence, conflicts, and explicit limitations. Mixed SNMP/SSH infrastructure
+sections add switch-port, VLAN, neighbor, PoE, printer, UPS, environment, and firmware-version
+inventory with per-field age/staleness and disclosed disagreements; see
+[`docs/infrastructure-reporting.md`](docs/infrastructure-reporting.md). `report validate` checks
 bounded ZIP/XML structure, required content, redaction, and rejects external relationships.
 
 ```bash

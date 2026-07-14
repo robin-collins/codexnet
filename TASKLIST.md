@@ -242,7 +242,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** fixture/session tests cover each vendor family, unknown platform, command rejection, paging, timeout, auth failure, parse fallback, and partial output.
 - **Balance:** command allowlist blocks configuration mode and write commands; credentials are not passed as command-line arguments.
 
-### [ ] T404 Add switch-port maps and infrastructure report sections
+### [x] T404 Add switch-port maps and infrastructure report sections
 
 - **Depends on:** T305, T402, T403
 - **Deliver:** correlated switch interfaces, VLANs, neighbors, learned MACs, PoE, printer/UPS/environment inventory, and firmware-version sections.

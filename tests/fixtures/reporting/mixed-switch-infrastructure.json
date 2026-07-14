@@ -1,0 +1,27 @@
+{
+  "fixture": "synthetic mixed SNMP and SSH infrastructure evidence",
+  "observations": [
+    ["snmp.interface.description", {"target": "192.0.2.10", "index": "7", "value": "Fixture old uplink"}, "snmp", "2026-07-01T00:00:00+00:00", 1.0],
+    ["ssh.show_interfaces_status", {"target": "192.0.2.10", "value": [{"port": "7", "description": "Fixture new uplink", "status": "up"}]}, "ssh:cisco_ios", "2026-07-15T00:00:00+00:00", 0.9],
+    ["snmp.vlan.name", {"target": "192.0.2.10", "index": "10", "value": "Fixture users"}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["ssh.show_vlan_brief", {"target": "192.0.2.10", "value": [{"vlan_id": 10, "name": "Fixture staff"}]}, "ssh:cisco_ios", "2026-07-15T00:00:00+00:00", 0.9],
+    ["snmp.neighbor.ipv4", {"target": "192.0.2.10", "index": "7.192.0.2.50", "value": "192.0.2.50"}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["ssh.show_lldp_neighbors_detail", {"target": "192.0.2.10", "value": [{"local_interface": "7", "system_name": "fixture-ap"}]}, "ssh:cisco_ios", "2026-07-15T00:00:00+00:00", 0.9],
+    ["ssh.show_mac_address_table", {"target": "192.0.2.10", "value": [{"destination_port": "7", "destination_address": "02:00:00:00:00:50"}]}, "ssh:cisco_ios", "2026-07-15T00:00:00+00:00", 0.9],
+    ["ssh.show_power_inline", {"target": "192.0.2.10", "value": [{"interface": "7", "power_watts": 8.4, "status": "delivering"}]}, "ssh:cisco_ios", "2026-07-15T00:00:00+00:00", 0.9],
+    ["snmp.bridge.mac", {"target": "192.0.2.10", "index": "2.0.0.0.0.80", "value": "02:00:00:00:00:50"}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["snmp.bridge.port", {"target": "192.0.2.10", "index": "2.0.0.0.0.80", "value": 7}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["snmp.bridge.mac", {"target": "192.0.2.10", "index": "orphan", "value": "02:00:00:00:00:51"}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["snmp.poe.port.detection_status", {"target": "192.0.2.10", "index": "1.7", "value": 3}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["snmp.printer.supply.level", {"target": "192.0.2.40", "index": "1.2", "value": null, "value_status": "unknown", "raw_value": "-2", "unit": "percent"}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["snmp.ups.battery.estimated_minutes_remaining", {"target": "192.0.2.40", "index": "system", "value": 42, "unit": "minutes"}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["snmp.environment.sensor.value", {"target": "192.0.2.40", "index": "100", "value": 245, "unit": "native sensor unit"}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["snmp.system.name", {"target": "192.0.2.10", "index": "", "value": "fixture-switch"}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["snmp.firmware.revision", {"target": "192.0.2.10", "index": "1", "value": "fixture-1.2.3"}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["ssh.show_version", {"target": "192.0.2.10", "value": {"version": "fixture-1.2.4", "model": "Synthetic Switch"}}, "ssh:cisco_ios", "2026-07-15T00:00:00+00:00", 0.9],
+    ["ssh.show_environment_all", {"target": "192.0.2.10", "value": [{"sensor": "inlet", "temperature": 24, "unit": "C"}]}, "ssh:cisco_ios", "2026-07-15T00:00:00+00:00", 0.9],
+    ["ssh.show_unknown", {"target": "192.0.2.30", "value": "unstructured"}, "ssh:cisco_ios", "2026-07-15T00:00:00+00:00", 0.6],
+    ["snmp.interface.description", {"target": "192.0.2.20", "index": "1", "value": "ambiguous"}, "snmp", "2026-07-15T00:00:00+00:00", 1.0],
+    ["snmp.interface.description", {"index": "1", "value": "missing target"}, "snmp", "2026-07-15T00:00:00+00:00", 1.0]
+  ]
+}

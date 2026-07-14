@@ -104,6 +104,7 @@ def test_report_model_is_deterministic_provenance_aware_and_snapshot_stable(
         "service_count": 1,
         "conflict_count": 2,
         "collector_run_count": 2,
+        "infrastructure_conflict_count": 0,
     }
     assert first["coverage"][1]["status"] == "partial"
     assert first["coverage"][1]["error_count"] == 1
@@ -115,7 +116,7 @@ def test_report_model_is_deterministic_provenance_aware_and_snapshot_stable(
     payload = deterministic_json(first)
     assert payload == deterministic_json(second)
     assert hashlib.sha256(payload).hexdigest() == (
-        "2626787fc7408d6121b49deee295944377ac49c3d850102e455495802f56ae84"
+        "1f4f2c4b38bdfdf55b64e02f2cb4f10c8041dc140a3760fcb013ab4c3e9aa6a6"
     )
 
 

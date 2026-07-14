@@ -17,6 +17,7 @@ from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
 from field_discovery.artifacts import safe_filename
+from field_discovery.infrastructure_reporting import build_infrastructure_model
 from field_discovery.redaction import Redactor
 from field_discovery.repository import Repository
 
@@ -201,6 +202,7 @@ def build_report_model(
         )
 
     conflicts = _conflicts(repository, deployment_id)
+    infrastructure = build_infrastructure_model(repository, deployment_id, generated_at=generated)
     limitations: list[str] = [
         "Inventory contains observations visible to configured collectors only.",
         "Absence of an observed service or device does not prove absence from the network.",
@@ -218,7 +220,7 @@ def build_report_model(
             "Collectors with incomplete or failed runs: " + ", ".join(incomplete_collectors) + "."
         )
     model: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "document": {
             "title": "Network Discovery Report",
             "document_version": document_version,
@@ -237,9 +239,11 @@ def build_report_model(
             "service_count": sum(len(device["services"]) for device in devices),
             "conflict_count": len(conflicts),
             "collector_run_count": len(coverage),
+            "infrastructure_conflict_count": len(cast(list[object], infrastructure["conflicts"])),
         },
         "devices": devices,
         "conflicts": conflicts,
+        "infrastructure": infrastructure,
         "limitations": limitations,
     }
     return cast(dict[str, Any], repository.redactor.value(model))
@@ -346,6 +350,57 @@ def _document_xml(model: dict[str, Any]) -> bytes:
             f"The report discloses {summary['conflict_count']} conflicts."
         )
     )
+    infrastructure = model["infrastructure"]
+    section_titles = (
+        ("switch_ports", "Switch port maps"),
+        ("vlans", "VLAN inventory"),
+        ("neighbors", "Switch neighbors"),
+        ("printers", "Printer inventory"),
+        ("ups", "UPS inventory"),
+        ("environment", "Environment readings"),
+        ("firmware", "Firmware versions"),
+    )
+    for section_key, title in section_titles:
+        body.append(_paragraph(title, "Heading1"))
+        rows: list[tuple[object, ...]] = []
+        for item in infrastructure[section_key]:
+            for field_name, field in item["fields"].items():
+                evidence = field["evidence"]
+                sources = ", ".join(sorted({entry["source"] for entry in evidence}))
+                ages = ", ".join(str(entry["age_days"]) for entry in evidence)
+                stale = "Yes" if any(entry["stale"] for entry in evidence) else "No"
+                rows.append(
+                    (
+                        item["device_key"] or item["target"],
+                        item["key"],
+                        field_name,
+                        json.dumps(field["value"], sort_keys=True, ensure_ascii=False),
+                        sources,
+                        ages,
+                        stale,
+                        "Yes" if field["conflict"] else "No",
+                    )
+                )
+        body.append(
+            _table(
+                (
+                    "Device",
+                    "Port/Index",
+                    "Field",
+                    "Value",
+                    "Source",
+                    "Age (days)",
+                    "Stale",
+                    "Conflict",
+                ),
+                rows,
+            )
+        )
+    body.append(_paragraph("Infrastructure data quality", "Heading1"))
+    for issue in infrastructure["data_quality"]:
+        body.append(_paragraph(json.dumps(issue, sort_keys=True, ensure_ascii=False)))
+    for limitation in infrastructure["limitations"]:
+        body.append(_paragraph(f"• {limitation}"))
     body.append(_paragraph("Collection coverage", "Heading1"))
     body.append(
         _table(
