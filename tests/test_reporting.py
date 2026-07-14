@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import shutil
@@ -13,6 +14,7 @@ import zipfile
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -218,7 +220,7 @@ def _valid_parts(repository: Repository) -> list[tuple[str, bytes]]:
         ("duplicate", "duplicate package"),
         ("external_mode", "external relationships"),
         ("external_uri", "external relationships"),
-        ("doctype", "prohibited declaration"),
+        ("doctype", "security scan"),
         ("malformed", "malformed XML"),
         ("no_paragraph", "no document paragraphs"),
         ("invalid_utf8", "cannot be read safely"),
@@ -291,6 +293,114 @@ def test_docx_validation_enforces_filename_entry_and_size_limits(
         validate_docx(valid)
 
 
+@pytest.mark.parametrize(
+    ("target", "mode"),
+    [
+        ("//files.example.invalid/share", None),
+        (r"\\files.example.invalid\share", None),
+        ("/word/styles.xml", None),
+        ("file:///etc/passwd", None),
+        ("https://example.invalid/resource", None),
+        ("%2F%2Fexample.invalid/resource", None),
+        ("%252F%252Fexample.invalid/resource", None),
+        ("%5C%5Cserver%5Cshare", None),
+        ("C:%5CWindows%5Cfile", None),
+        ("styles.xml?next=https%3A%2F%2Fexample.invalid", None),
+        ("styles.xml?next=file%3Arelative", None),
+        ("styles.xml?next=%2F%2Fexample.invalid", None),
+        ("styles.xml#%5C%5Cexample.invalid", None),
+        ("styles.xml#next=https%3Ahost", None),
+        ("styles.xml", "External"),
+        ("//example.invalid", "Internal"),
+        ("../../../outside.xml", None),
+        ("missing.xml", None),
+        ("bad%GGtarget.xml", None),
+        ("?next=safe", None),
+        ("x" * 2_049, None),
+        ("", None),
+    ],
+)
+def test_relationship_target_audit_rejects_external_ambiguous_and_missing_targets(
+    repository: Repository, tmp_path: Path, target: str, mode: str | None
+) -> None:
+    parts = _valid_parts(repository)
+    mode_attribute = "" if mode is None else f' TargetMode="{mode}"'
+    relationship = (
+        f'<Relationships xmlns="{reporting._REL}"><Relationship Id="fixture" '
+        f'Type="fixture" Target="{target}"{mode_attribute}/></Relationships>'
+    ).encode()
+    path = tmp_path / f"target-{len(target)}-{mode or 'none'}.docx"
+    _write_package(
+        path,
+        [
+            (name, relationship if name == "word/_rels/document.xml.rels" else data)
+            for name, data in parts
+        ],
+    )
+    with pytest.raises(ReportError, match="external relationships") as caught:
+        validate_docx(path)
+    if target:
+        assert target not in str(caught.value)
+
+
+def test_relationship_audit_accepts_confined_parent_and_rejects_invalid_relationship_part(
+    repository: Repository, tmp_path: Path
+) -> None:
+    parts = _valid_parts(repository)
+    parent_target = (
+        f'<Relationships xmlns="{reporting._REL}"><Relationship Id="fixture" '
+        'Target="../docProps/core.xml"/></Relationships>'
+    ).encode()
+    confined = tmp_path / "confined.docx"
+    _write_package(
+        confined,
+        [
+            (name, parent_target if name == "word/_rels/document.xml.rels" else data)
+            for name, data in parts
+        ],
+    )
+    assert validate_docx(confined).external_relationships == ()
+
+    invalid_part = tmp_path / "invalid-part.docx"
+    _write_package(invalid_part, [*parts, ("custom.rels", parent_target)])
+    with pytest.raises(ReportError, match="external relationships"):
+        validate_docx(invalid_part)
+    with pytest.raises(ReportError, match="target is invalid"):
+        reporting._internal_relationship_target("styles.xml\x00hidden", "_rels/.rels")
+
+
+@pytest.mark.parametrize(
+    "secret_form",
+    [
+        b"Synthetic Secret!",
+        base64.b64encode(b"Synthetic Secret!"),
+        quote("Synthetic Secret!", safe="").encode(),
+        b"Synthetic Secret!".hex().encode(),
+    ],
+)
+def test_every_package_member_is_scanned_for_registered_binary_secret_variants(
+    repository: Repository, tmp_path: Path, secret_form: bytes
+) -> None:
+    parts = [*_valid_parts(repository), ("word/media/opaque.bin", b"\xff" + secret_form + b"\x00")]
+    path = tmp_path / f"binary-secret-{len(secret_form)}.docx"
+    _write_package(path, parts)
+    secret = "Synthetic Secret!"
+    with pytest.raises(ReportError, match="security scan") as caught:
+        validate_docx(path, redactor=Redactor([secret]))
+    assert secret not in str(caught.value)
+    assert secret_form.decode("ascii") not in str(caught.value)
+
+
+def test_prohibited_declaration_is_rejected_in_non_xml_member(
+    repository: Repository, tmp_path: Path
+) -> None:
+    parts = [*_valid_parts(repository), ("word/media/opaque.bin", b"\x00<!entity fixture>\xff")]
+    path = tmp_path / "binary-declaration.docx"
+    _write_package(path, parts)
+    with pytest.raises(ReportError, match="security scan"):
+        validate_docx(path)
+
+
 def test_invalid_model_and_zip_inputs_fail_closed(repository: Repository, tmp_path: Path) -> None:
     deployment_id = populated(repository)
     with pytest.raises(ReportError, match="does not exist"):
@@ -323,7 +433,7 @@ def test_invalid_model_and_zip_inputs_fail_closed(repository: Repository, tmp_pa
 def test_validator_checks_non_xml_entries_text_nodes_and_read_errors(
     repository: Repository, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    parts = [*_valid_parts(repository), ("payload.bin", b"synthetic")]
+    parts = [*_valid_parts(repository), ("payload.bin", b"\xff\x00synthetic")]
     valid = tmp_path / "with-binary.docx"
     _write_package(valid, parts)
     assert validate_docx(valid).paragraph_count > 0
@@ -331,10 +441,10 @@ def test_validator_checks_non_xml_entries_text_nodes_and_read_errors(
     sensitive = tmp_path / "sensitive-content.docx"
     _write_package(
         sensitive,
-        [*parts, ("custom.xml", b"<root><value>synthetic-secret</value></root>")],
+        [*parts, ("custom.xml", b"<root><value>password=fixture-value</value></root>")],
     )
     with pytest.raises(ReportError, match="sensitive content"):
-        validate_docx(sensitive, redactor=Redactor(["synthetic-secret"]))
+        validate_docx(sensitive)
 
     no_target = tmp_path / "no-target.docx"
     relationship = (
@@ -347,7 +457,22 @@ def test_validator_checks_non_xml_entries_text_nodes_and_read_errors(
             for name, data in parts
         ],
     )
-    assert validate_docx(no_target).external_relationships == ()
+    with pytest.raises(ReportError, match="external relationships"):
+        validate_docx(no_target)
+
+    benign = tmp_path / "benign-target.docx"
+    benign_relationship = (
+        f'<Relationships xmlns="{reporting._REL}"><Relationship Id="x" '
+        'Target="styles.xml?theme=blue#section"/></Relationships>'
+    ).encode()
+    _write_package(
+        benign,
+        [
+            (name, benign_relationship if name == "word/_rels/document.xml.rels" else data)
+            for name, data in parts
+        ],
+    )
+    assert validate_docx(benign).external_relationships == ()
 
     def failed_read(
         _self: zipfile.ZipFile, _name: object, *_args: object, **_kwargs: object
@@ -367,7 +492,7 @@ def test_publish_removes_partial_file_when_sync_fails(
     def fail_sync(_descriptor: int) -> None:
         raise OSError("synthetic sync failure")
 
-    monkeypatch.setattr(reporting.os, "fsync", fail_sync)
+    monkeypatch.setattr("field_discovery.reporting.os.fsync", fail_sync)
     with pytest.raises(OSError, match="sync failure"):
         reporting._publish(target, b"fixture")
     assert not target.exists()

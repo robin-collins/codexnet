@@ -11,7 +11,9 @@ import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from posixpath import normpath
 from typing import Any, cast
+from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
 from field_discovery.artifacts import safe_filename
@@ -32,6 +34,9 @@ _MAX_DOCX_UNCOMPRESSED = 32 * 1024 * 1024
 _MAX_DOCX_ENTRY = 8 * 1024 * 1024
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _SAFE_DOCUMENT_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
+_MAX_RELATIONSHIP_TARGET = 2_048
+_URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+_EMBEDDED_URI_SCHEME = re.compile(r"(?:^|[=&])\s*[A-Za-z][A-Za-z0-9+.-]*:")
 
 ET.register_namespace("w", _W)
 ET.register_namespace("r", _R)
@@ -676,13 +681,65 @@ def generate_reports(
 
 
 def _parse_package_xml(name: str, payload: bytes) -> ET.Element:
-    upper = payload.upper()
-    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
-        raise ReportError(f"DOCX XML contains a prohibited declaration: {name}")
     try:
         return ET.fromstring(payload)
     except ET.ParseError as exc:
         raise ReportError(f"DOCX contains malformed XML: {name}") from exc
+
+
+def _security_scan(payload: bytes, redactor: Redactor) -> None:
+    upper = payload.upper()
+    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+        raise ReportError("DOCX package member failed security scan")
+    if any(variant and variant in payload for variant in redactor.registered_byte_variants()):
+        raise ReportError("DOCX package member failed security scan")
+
+
+def _decoded_target(target: str) -> str:
+    if not target or len(target) > _MAX_RELATIONSHIP_TARGET:
+        raise ReportError("DOCX relationship target is invalid")
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in target):
+        raise ReportError("DOCX relationship target is invalid")
+    decoded = target.strip()
+    for _ in range(2):
+        if re.search(r"%(?![0-9A-Fa-f]{2})", decoded):
+            raise ReportError("DOCX relationship target is invalid")
+        updated = unquote(decoded)
+        if updated == decoded:
+            break
+        decoded = updated
+    return decoded
+
+
+def _internal_relationship_target(target: str, relationship_part: str) -> str:
+    decoded = _decoded_target(target)
+    normalized_slashes = decoded.replace("\\", "/")
+    inspected = normalized_slashes.casefold()
+    if "\\" in decoded or normalized_slashes.startswith("/") or _URI_SCHEME.match(inspected):
+        raise ReportError("DOCX contains an external or absolute relationship")
+    for separator in ("?", "#"):
+        _prefix, present, suffix = normalized_slashes.partition(separator)
+        if present and (
+            suffix.startswith(("/", "\\"))
+            or "//" in suffix
+            or "\\" in suffix
+            or _EMBEDDED_URI_SCHEME.search(suffix)
+        ):
+            raise ReportError("DOCX contains an external or absolute relationship")
+    path = re.split(r"[?#]", normalized_slashes, maxsplit=1)[0]
+    if not path:
+        raise ReportError("DOCX relationship target is invalid")
+    relationship_path = PurePosixPath(relationship_part)
+    if relationship_part == "_rels/.rels":
+        base = ""
+    else:
+        if relationship_path.parent.name != "_rels" or not relationship_path.name.endswith(".rels"):
+            raise ReportError("DOCX relationship part is invalid")
+        base = relationship_path.parent.parent.as_posix()
+    resolved = normpath(f"{base}/{path}" if base else path)
+    if resolved in {"", ".", ".."} or resolved.startswith("../"):
+        raise ReportError("DOCX relationship target escapes the package")
+    return resolved
 
 
 def validate_docx(path: Path, *, redactor: Redactor | None = None) -> DocxValidation:
@@ -718,6 +775,7 @@ def validate_docx(path: Path, *, redactor: Redactor | None = None) -> DocxValida
                 payload = archive.read(info)
             except (RuntimeError, zipfile.BadZipFile) as exc:
                 raise ReportError("DOCX package content cannot be read safely") from exc
+            _security_scan(payload, active_redactor)
             if active_redactor.text(info.filename) != info.filename:
                 raise ReportError("DOCX package filename contains sensitive data")
             if info.filename.endswith((".xml", ".rels")):
@@ -735,10 +793,17 @@ def validate_docx(path: Path, *, redactor: Redactor | None = None) -> DocxValida
                 if info.filename.endswith(".rels"):
                     for relationship in root.findall(f"{{{_REL}}}Relationship"):
                         target = relationship.get("Target", "")
-                        if relationship.get("TargetMode") == "External" or re.match(
-                            r"^[A-Za-z][A-Za-z0-9+.-]*:", target
-                        ):
-                            external.append(f"{info.filename}:{target}")
+                        mode = relationship.get("TargetMode")
+                        if mode not in {None, "Internal"}:
+                            external.append(info.filename)
+                            continue
+                        try:
+                            resolved = _internal_relationship_target(target, info.filename)
+                        except ReportError:
+                            external.append(info.filename)
+                            continue
+                        if resolved not in names:
+                            external.append(info.filename)
         if external:
             raise ReportError("DOCX contains external relationships")
         assert document_root is not None

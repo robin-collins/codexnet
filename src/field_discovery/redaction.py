@@ -340,3 +340,7 @@ class Redactor:
     def exception(self, exc: BaseException) -> str:
         """Render an exception without traceback arguments or unredacted content."""
         return f"{type(exc).__name__}: {self.text(exc)}"
+
+    def registered_byte_variants(self) -> tuple[bytes, ...]:
+        """Return registered raw/encoded secret forms for bounded binary boundary scans."""
+        return tuple(variant.encode("utf-8") for variant in self._variants)
