@@ -179,4 +179,3 @@ script checksum, and the observed absence/presence of cron/timers to
 | 10 Testing | Unit/fixture/migration/integration tests, temporary paths and offline approved targets |
 | 11 Delivery phases | Components are separable along the five phases and TASKLIST stage gates |
 | 12 Definition of done | Gate evidence covers install/reboot, coexistence, collectors, data integrity, redaction, reporting and operator docs |
-
