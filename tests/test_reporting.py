@@ -15,6 +15,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
+from xml.etree import ElementTree as ET
 
 import pytest
 
@@ -366,11 +367,15 @@ def test_relationship_audit_accepts_confined_parent_and_rejects_invalid_relation
     repository: Repository, tmp_path: Path
 ) -> None:
     parts = _valid_parts(repository)
-    parent_target = (
-        f'<Relationships xmlns="{reporting._REL}"><Relationship Id="fixture" '
-        'Target="../docProps/core.xml"/></Relationships>'
-    ).encode()
-    confined = tmp_path / "confined.docx"
+    relationship_parts = dict(parts)
+    relationship_root = ET.fromstring(relationship_parts["word/_rels/document.xml.rels"])
+    ET.SubElement(
+        relationship_root,
+        f"{{{reporting._REL}}}Relationship",
+        {"Id": "fixture", "Target": "../docProps/core.xml"},
+    )
+    parent_target = ET.tostring(relationship_root)
+    confined = tmp_path / "Fixture-Site-Network-Discovery-20260715.docx"
     _write_package(
         confined,
         [
@@ -382,10 +387,162 @@ def test_relationship_audit_accepts_confined_parent_and_rejects_invalid_relation
 
     invalid_part = tmp_path / "invalid-part.docx"
     _write_package(invalid_part, [*parts, ("custom.rels", parent_target)])
-    with pytest.raises(ReportError, match="external relationships"):
+    with pytest.raises(ReportError, match="relationship part is invalid"):
         validate_docx(invalid_part)
     with pytest.raises(ReportError, match="target is invalid"):
         reporting._internal_relationship_target("styles.xml\x00hidden", "_rels/.rels")
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("section", "required report sections"),
+        ("property", "document properties"),
+        ("missing_image", "relationships"),
+        ("broken_reference", "broken relationships"),
+    ],
+)
+def test_final_validation_requires_sections_properties_images_and_references(
+    repository: Repository,
+    tmp_path: Path,
+    mutation: str,
+    message: str,
+) -> None:
+    package = dict(_valid_parts(repository))
+    if mutation == "section":
+        package["word/document.xml"] = package["word/document.xml"].replace(
+            b"Executive summary", b"Omitted summary", 1
+        )
+    elif mutation == "property":
+        core = ET.fromstring(package["docProps/core.xml"])
+        creator = core.find(f"{{{reporting._DC}}}creator")
+        assert creator is not None
+        core.remove(creator)
+        package["docProps/core.xml"] = ET.tostring(core)
+    elif mutation == "missing_image":
+        package.pop("word/media/network-topology.svg")
+    else:
+        document = ET.fromstring(package["word/document.xml"])
+        reference = document.find(f".//{{{reporting._W}}}headerReference")
+        assert reference is not None
+        reference.set(f"{{{reporting._R}}}id", "missingRelationship")
+        package["word/document.xml"] = ET.tostring(document)
+    path = tmp_path / "Fixture-Site-Network-Discovery-20260715.docx"
+    _write_package(path, list(package.items()))
+    with pytest.raises(ReportError, match=message):
+        validate_docx(path)
+
+
+@pytest.mark.parametrize(
+    ("member", "payload", "redactor"),
+    [
+        ("custom.bin", b"final-audit-secret", Redactor(["final-audit-secret"])),
+        (
+            "custom.dat",
+            base64.b64encode(b"final-audit-secret"),
+            Redactor(["final-audit-secret"]),
+        ),
+        ("custom.txt", b"credential dumping", Redactor()),
+    ],
+)
+def test_final_validation_audits_every_member_without_echoing_rejected_values(
+    repository: Repository,
+    tmp_path: Path,
+    member: str,
+    payload: bytes,
+    redactor: Redactor,
+) -> None:
+    package = [*_valid_parts(repository), (member, payload)]
+    path = tmp_path / "Fixture-Site-Network-Discovery-20260715.docx"
+    _write_package(path, package)
+    with pytest.raises(ReportError, match="audit|security scan") as caught:
+        validate_docx(path, redactor=redactor)
+    assert "final-audit-secret" not in str(caught.value)
+    assert "credential dumping" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "filename",
+    (
+        "report.docx",
+        "Fixture-Site-Network-Discovery-20261340.docx",
+        "Fixture-Site-Network-Discovery-20260715.docm",
+    ),
+)
+def test_final_validation_rejects_nonproduction_or_invalid_dated_filenames(
+    repository: Repository, tmp_path: Path, filename: str
+) -> None:
+    path = tmp_path / filename
+    _write_package(path, _valid_parts(repository))
+    with pytest.raises(ReportError, match="filename"):
+        validate_docx(path)
+
+
+def test_validation_helper_failure_branches_are_fail_closed(repository: Repository) -> None:
+    package = dict(_valid_parts(repository))
+    document = ET.fromstring(package["word/document.xml"])
+    relation_root = ET.fromstring(package["word/_rels/document.xml.rels"])
+    roots = {"word/_rels/document.xml.rels": relation_root}
+    relations = {
+        relation.get("Id", ""): (
+            relation.get("Type", ""),
+            f"word/{relation.get('Target', '')}",
+        )
+        for relation in relation_root
+    }
+
+    with pytest.raises(ReportError, match="missing required document properties"):
+        reporting._validate_required_properties({})
+    core = ET.fromstring(package["docProps/core.xml"])
+    empty_app = ET.Element("{fixture}Properties")
+    with pytest.raises(ReportError, match="incomplete required document properties"):
+        reporting._validate_required_properties(
+            {"docProps/core.xml": core, "docProps/app.xml": empty_app}
+        )
+    with pytest.raises(ReportError, match="required document relationships"):
+        reporting._validate_document_semantics(document, {}, relations)
+
+    image = next(
+        relation for relation in relation_root if relation.get("Type", "").endswith("/image")
+    )
+    relation_root.remove(image)
+    with pytest.raises(ReportError, match="required embedded images"):
+        reporting._validate_document_semantics(document, roots, relations)
+    relation_root.append(image)
+    relations[image.get("Id", "")] = (image.get("Type", ""), "word/styles.xml")
+    with pytest.raises(ReportError, match="invalid embedded image relationship"):
+        reporting._validate_document_semantics(document, roots, relations)
+    with pytest.raises(ReportError, match="relationship part is invalid"):
+        reporting._internal_relationship_target("styles.xml", "custom.rels")
+
+
+@pytest.mark.parametrize("mutation", ("orphan_part", "duplicate_id"))
+def test_validation_rejects_orphan_relationship_parts_and_duplicate_ids(
+    repository: Repository, tmp_path: Path, mutation: str
+) -> None:
+    package = _valid_parts(repository)
+    relationship = (
+        f'<Relationships xmlns="{reporting._REL}"><Relationship Id="fixture" '
+        'Target="../styles.xml"/></Relationships>'
+    ).encode()
+    if mutation == "orphan_part":
+        package.append(("word/_rels/missing.xml.rels", relationship))
+    else:
+        values = dict(package)
+        root = ET.fromstring(values["word/_rels/document.xml.rels"])
+        ET.SubElement(
+            root,
+            f"{{{reporting._REL}}}Relationship",
+            {"Id": "rId1", "Target": "styles.xml"},
+        )
+        package = [
+            (name, ET.tostring(root) if name == "word/_rels/document.xml.rels" else payload)
+            for name, payload in package
+        ]
+    path = tmp_path / "Fixture-Site-Network-Discovery-20260715.docx"
+    _write_package(path, package)
+    with pytest.raises(ReportError, match="relationships"):
+        validate_docx(path)
 
 
 @pytest.mark.parametrize(
@@ -455,7 +612,7 @@ def test_validator_checks_non_xml_entries_text_nodes_and_read_errors(
     repository: Repository, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     parts = [*_valid_parts(repository), ("payload.bin", b"\xff\x00synthetic")]
-    valid = tmp_path / "with-binary.docx"
+    valid = tmp_path / "Fixture-Site-Network-Discovery-20260715.docx"
     _write_package(valid, parts)
     assert validate_docx(valid).paragraph_count > 0
 
@@ -464,7 +621,7 @@ def test_validator_checks_non_xml_entries_text_nodes_and_read_errors(
         sensitive,
         [*parts, ("custom.xml", b"<root><value>password=fixture-value</value></root>")],
     )
-    with pytest.raises(ReportError, match="sensitive content"):
+    with pytest.raises(ReportError, match="content audit"):
         validate_docx(sensitive)
 
     no_target = tmp_path / "no-target.docx"
@@ -482,10 +639,13 @@ def test_validator_checks_non_xml_entries_text_nodes_and_read_errors(
         validate_docx(no_target)
 
     benign = tmp_path / "benign-target.docx"
-    benign_relationship = (
-        f'<Relationships xmlns="{reporting._REL}"><Relationship Id="x" '
-        'Target="styles.xml?theme=blue#section"/></Relationships>'
-    ).encode()
+    benign_root = ET.fromstring(dict(parts)["word/_rels/document.xml.rels"])
+    ET.SubElement(
+        benign_root,
+        f"{{{reporting._REL}}}Relationship",
+        {"Id": "x", "Target": "styles.xml?theme=blue#section"},
+    )
+    benign_relationship = ET.tostring(benign_root)
     _write_package(
         benign,
         [
@@ -493,7 +653,13 @@ def test_validator_checks_non_xml_entries_text_nodes_and_read_errors(
             for name, data in parts
         ],
     )
-    assert validate_docx(benign).external_relationships == ()
+    benign.rename(tmp_path / "Benign-Site-Network-Discovery-20260715.docx")
+    assert (
+        validate_docx(
+            tmp_path / "Benign-Site-Network-Discovery-20260715.docx"
+        ).external_relationships
+        == ()
+    )
 
     def failed_read(
         _self: zipfile.ZipFile, _name: object, *_args: object, **_kwargs: object

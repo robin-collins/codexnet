@@ -43,6 +43,46 @@ _SAFE_DOCUMENT_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
 _MAX_RELATIONSHIP_TARGET = 2_048
 _URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _EMBEDDED_URI_SCHEME = re.compile(r"(?:^|[=&])\s*[A-Za-z][A-Za-z0-9+.-]*:")
+_REPORT_FILENAME = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._-]{0,180}-Network-Discovery-(?P<date>[0-9]{8})\.docx$"
+)
+_REQUIRED_REPORT_SECTIONS = frozenset(
+    {
+        "Table of contents",
+        "Executive summary",
+        "Embedded diagrams",
+        "Switch port maps",
+        "VLAN inventory",
+        "Switch neighbors",
+        "Printer inventory",
+        "UPS inventory",
+        "Environment readings",
+        "Firmware versions",
+        "Infrastructure data quality",
+        "UniFi topology and inventory",
+        "Active Directory structure and trusts",
+        "Collection coverage",
+        "Device inventory",
+        "Service inventory",
+        "Conflicts and data quality",
+        "Limitations",
+    }
+)
+_PROHIBITED_REPORT_CONTENT = re.compile(
+    r"(?i)\b(?:mimikatz|secretsdump|kerberoast(?:ing)?|as[- ]?rep roast(?:ing)?|"
+    r"password crack(?:ing)?|credential dump(?:ing)?|bloodhound|attack[- ]path collection|"
+    r"brute[- ]force)\b"
+)
+_REQUIRED_CORE_PROPERTIES = (
+    (_DC, "title"),
+    (_DC, "subject"),
+    (_DC, "creator"),
+    (_CP, "lastModifiedBy"),
+    (_CP, "revision"),
+    (_CP, "keywords"),
+    (_DCTERMS, "created"),
+    (_DCTERMS, "modified"),
+)
 
 ET.register_namespace("w", _W)
 ET.register_namespace("r", _R)
@@ -1205,7 +1245,9 @@ def generate_reports(
     json_payload = deterministic_json(model)
     docx_payload = deterministic_docx(model, template_path=template_path)
     _safe_output_root(output_root)
-    label = f"{customer_name}-{site_name}-Network-Discovery-{generated_at:%Y%m%d}"
+    customer_label = safe_filename(customer_name, redactor=repository.redactor)
+    site_label = safe_filename(site_name, redactor=repository.redactor)
+    label = f"{customer_label}-{site_label}-Network-Discovery-{generated_at:%Y%m%d}"
     basename = safe_filename(label, redactor=repository.redactor)
     docx_path = output_root / f"{basename}.docx"
     json_path = output_root / f"{basename}.json"
@@ -1247,19 +1289,99 @@ def generate_reports(
     return ReportOutputs(docx_path, json_path, docx_digest, json_digest)
 
 
-def _parse_package_xml(name: str, payload: bytes) -> ET.Element:
+def _parse_package_xml(payload: bytes) -> ET.Element:
     try:
         return ET.fromstring(payload)
     except ET.ParseError as exc:
-        raise ReportError(f"DOCX contains malformed XML: {name}") from exc
+        raise ReportError("DOCX contains a malformed XML package member") from exc
 
 
-def _security_scan(payload: bytes, redactor: Redactor) -> None:
+def _security_scan(payload: bytes, redactor: Redactor, *, structural_text: bool) -> None:
     upper = payload.upper()
     if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
         raise ReportError("DOCX package member failed security scan")
     if any(variant and variant in payload for variant in redactor.registered_byte_variants()):
         raise ReportError("DOCX package member failed security scan")
+    try:
+        text = payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return
+    if (structural_text and redactor.text(text) != text) or _PROHIBITED_REPORT_CONTENT.search(text):
+        raise ReportError("DOCX package member failed content audit")
+
+
+def _validate_report_filename(path: Path, redactor: Redactor) -> None:
+    match = _REPORT_FILENAME.fullmatch(path.name)
+    if match is None or redactor.text(path.name) != path.name:
+        raise ReportError("DOCX filename does not match the production report convention")
+    try:
+        datetime.strptime(match.group("date"), "%Y%m%d")
+    except ValueError as exc:
+        raise ReportError("DOCX filename contains an invalid report date") from exc
+
+
+def _relationship_source(relationship_part: str) -> str | None:
+    if relationship_part == "_rels/.rels":
+        return None
+    path = PurePosixPath(relationship_part)
+    if path.parent.name != "_rels" or not path.name.endswith(".rels"):
+        raise ReportError("DOCX relationship part is invalid")
+    source_name = path.name.removesuffix(".rels")
+    return (path.parent.parent / source_name).as_posix()
+
+
+def _validate_required_properties(roots: dict[str, ET.Element]) -> None:
+    core = roots.get("docProps/core.xml")
+    app = roots.get("docProps/app.xml")
+    if core is None or app is None:
+        raise ReportError("DOCX is missing required document properties")
+    if any(
+        (node := core.find(f"{{{namespace}}}{name}")) is None or not (node.text or "").strip()
+        for namespace, name in _REQUIRED_CORE_PROPERTIES
+    ):
+        raise ReportError("DOCX has incomplete required document properties")
+    application = next((node for node in app if node.tag.endswith("}Application")), None)
+    if application is None or not (application.text or "").strip():
+        raise ReportError("DOCX has incomplete required document properties")
+
+
+def _validate_document_semantics(
+    document: ET.Element,
+    roots: dict[str, ET.Element],
+    relationships: dict[str, tuple[str, str]],
+) -> tuple[int, int]:
+    paragraphs = document.findall(f".//{{{_W}}}p")
+    tables = document.findall(f".//{{{_W}}}tbl")
+    if not paragraphs:
+        raise ReportError("DOCX contains no document paragraphs")
+    headings: set[str] = set()
+    for paragraph in paragraphs:
+        style = paragraph.find(f"./{{{_W}}}pPr/{{{_W}}}pStyle")
+        if style is not None and style.get(f"{{{_W}}}val") == "Heading1":
+            headings.add("".join(node.text or "" for node in paragraph.findall(f".//{{{_W}}}t")))
+    if not _REQUIRED_REPORT_SECTIONS.issubset(headings):
+        raise ReportError("DOCX is missing one or more required report sections")
+
+    document_relations = roots.get("word/_rels/document.xml.rels")
+    if document_relations is None:
+        raise ReportError("DOCX is missing required document relationships")
+    image_ids = {
+        relation.get("Id", "")
+        for relation in document_relations.findall(f"{{{_REL}}}Relationship")
+        if relation.get("Type", "").endswith("/image")
+    }
+    embedded_ids = {
+        node.get(f"{{{_R}}}embed", "")
+        for node in document.findall(f".//{{{_A}}}blip")
+        if node.get(f"{{{_R}}}embed")
+    }
+    if len(embedded_ids) < 5 or embedded_ids != image_ids:
+        raise ReportError("DOCX is missing one or more required embedded images")
+    if any(
+        not relationships[identifier][1].startswith("word/media/") for identifier in embedded_ids
+    ):
+        raise ReportError("DOCX contains an invalid embedded image relationship")
+    return len(paragraphs), len(tables)
 
 
 def _decoded_target(target: str) -> str:
@@ -1312,13 +1434,25 @@ def _internal_relationship_target(target: str, relationship_part: str) -> str:
 def validate_docx(path: Path, *, redactor: Redactor | None = None) -> DocxValidation:
     """Validate bounded DOCX internals, relationships, semantics, and redaction."""
     active_redactor = redactor or Redactor()
-    if path.suffix.casefold() != ".docx" or active_redactor.text(path.name) != path.name:
-        raise ReportError("DOCX filename is invalid or sensitive")
+    if path.suffix.casefold() != ".docx":
+        raise ReportError("DOCX filename does not match the production report convention")
     try:
         archive = zipfile.ZipFile(path)
     except (OSError, zipfile.BadZipFile) as exc:
         raise ReportError("report is not a valid DOCX ZIP package") from exc
-    required = {"[Content_Types].xml", "_rels/.rels", "word/document.xml"}
+    required = {
+        "[Content_Types].xml",
+        "_rels/.rels",
+        "docProps/app.xml",
+        "docProps/core.xml",
+        "word/_rels/document.xml.rels",
+        "word/document.xml",
+        "word/footer1.xml",
+        "word/header1.xml",
+        "word/numbering.xml",
+        "word/settings.xml",
+        "word/styles.xml",
+    }
     external: list[str] = []
     try:
         infos = archive.infolist()
@@ -1328,7 +1462,8 @@ def validate_docx(path: Path, *, redactor: Redactor | None = None) -> DocxValida
         if not required.issubset(names):
             raise ReportError("DOCX is missing required package entries")
         total = 0
-        document_root: ET.Element | None = None
+        roots: dict[str, ET.Element] = {}
+        relationships: dict[str, tuple[str, str]] = {}
         for info in infos:
             pure = PurePosixPath(info.filename)
             if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
@@ -1342,25 +1477,34 @@ def validate_docx(path: Path, *, redactor: Redactor | None = None) -> DocxValida
                 payload = archive.read(info)
             except (RuntimeError, zipfile.BadZipFile) as exc:
                 raise ReportError("DOCX package content cannot be read safely") from exc
-            _security_scan(payload, active_redactor)
+            is_xml = info.filename.endswith((".xml", ".rels", ".svg"))
+            _security_scan(payload, active_redactor, structural_text=not is_xml)
             if active_redactor.text(info.filename) != info.filename:
                 raise ReportError("DOCX package filename contains sensitive data")
-            if info.filename.endswith((".xml", ".rels")):
+            if is_xml:
                 payload.decode("utf-8", errors="strict")
-                root = _parse_package_xml(info.filename, payload)
+                root = _parse_package_xml(payload)
+                roots[info.filename] = root
                 for element in root.iter():
                     values = [element.text, element.tail, *element.attrib.values()]
                     if any(
                         value is not None and active_redactor.text(value) != value
                         for value in values
                     ):
-                        raise ReportError(f"DOCX contains sensitive content: {info.filename}")
-                if info.filename == "word/document.xml":
-                    document_root = root
+                        raise ReportError("DOCX package member failed content audit")
                 if info.filename.endswith(".rels"):
+                    source = _relationship_source(info.filename)
+                    if source is not None and source not in names:
+                        external.append(info.filename)
+                    identifiers: set[str] = set()
                     for relationship in root.findall(f"{{{_REL}}}Relationship"):
+                        identifier = relationship.get("Id", "")
                         target = relationship.get("Target", "")
                         mode = relationship.get("TargetMode")
+                        if not identifier or identifier in identifiers:
+                            external.append(info.filename)
+                            continue
+                        identifiers.add(identifier)
                         if mode not in {None, "Internal"}:
                             external.append(info.filename)
                             continue
@@ -1371,14 +1515,25 @@ def validate_docx(path: Path, *, redactor: Redactor | None = None) -> DocxValida
                             continue
                         if resolved not in names:
                             external.append(info.filename)
+                            continue
+                        if source == "word/document.xml":
+                            relationships[identifier] = (relationship.get("Type", ""), resolved)
         if external:
-            raise ReportError("DOCX contains external relationships")
-        assert document_root is not None
-        paragraphs = document_root.findall(f".//{{{_W}}}p")
-        tables = document_root.findall(f".//{{{_W}}}tbl")
-        if not paragraphs:
-            raise ReportError("DOCX contains no document paragraphs")
-        return DocxValidation(tuple(sorted(names)), len(paragraphs), len(tables), tuple(external))
+            raise ReportError("DOCX contains external relationships or broken relationships")
+        document_root = roots["word/document.xml"]
+        referenced = {
+            value
+            for element in document_root.iter()
+            for attribute, value in element.attrib.items()
+            if attribute.startswith(f"{{{_R}}}")
+            and attribute.rsplit("}", maxsplit=1)[-1] in {"embed", "id", "link"}
+        }
+        if not referenced.issubset(relationships):
+            raise ReportError("DOCX contains external relationships or broken relationships")
+        _validate_required_properties(roots)
+        paragraphs, tables = _validate_document_semantics(document_root, roots, relationships)
+        _validate_report_filename(path, active_redactor)
+        return DocxValidation(tuple(sorted(names)), paragraphs, tables, tuple(external))
     except UnicodeDecodeError as exc:
         raise ReportError("DOCX package content cannot be read safely") from exc
     finally:

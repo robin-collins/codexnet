@@ -234,7 +234,10 @@ def test_empty_and_large_reports_remain_bounded_deterministic_and_valid(tmp_path
     assert large == deterministic_docx(large_model)
     assert len(empty) < 1_000_000
     assert len(large) < 8_000_000
-    for name, payload in (("empty.docx", empty), ("large.docx", large)):
+    for name, payload in (
+        ("Empty-Site-Network-Discovery-20260715.docx", empty),
+        ("Large-Site-Network-Discovery-20260715.docx", large),
+    ):
         path = tmp_path / name
         path.write_bytes(payload)
         validation = validate_docx(path)

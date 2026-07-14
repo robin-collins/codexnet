@@ -906,7 +906,9 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
                 "message": "DOCX report validation passed.",
                 "paragraphs": validation.paragraph_count,
                 "tables": validation.table_count,
+                "validated_parts": len(validation.entries),
                 "external_relationships": list(validation.external_relationships),
+                "upload_ready": True,
             },
             json_mode=arguments.json_mode,
         )
@@ -953,11 +955,14 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
             payload = {
                 "ok": True,
                 "command": command,
-                "message": f"DOCX report generated: {outputs.docx_path}",
+                "message": (
+                    f"DOCX report generated and validated for manual upload: {outputs.docx_path}"
+                ),
                 "docx": str(outputs.docx_path),
                 "json": str(outputs.json_path),
                 "docx_sha256": outputs.docx_sha256,
                 "json_sha256": outputs.json_sha256,
+                "upload_ready": True,
             }
             logger.info("report_generated", extra={"command": command})
             _emit(payload, json_mode=arguments.json_mode)

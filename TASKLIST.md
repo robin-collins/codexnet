@@ -307,7 +307,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** semantic DOCX tests plus rendering/open checks in current Word when available and LibreOffice; wide/empty/large datasets render correctly; no external relationships.
 - **Balance:** generated document is self-contained and customer metadata is explicitly supplied, never inferred from secrets.
 
-### [ ] T601 Implement report validation and final redaction audit
+### [x] T601 Implement report validation and final redaction audit
 
 - **Depends on:** T105, T600
 - **Deliver:** `report validate` checking ZIP/XML integrity, required sections/properties, broken relationships, external resources, missing images, filename, and secret/prohibited-content patterns.

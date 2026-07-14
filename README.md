@@ -72,8 +72,10 @@ the CodexNet data root. The report includes collection coverage, device and serv
 evidence source/age/confidence, conflicts, and explicit limitations. Mixed SNMP/SSH infrastructure
 sections add switch-port, VLAN, neighbor, PoE, printer, UPS, environment, and firmware-version
 inventory with per-field age/staleness and disclosed disagreements; see
-[`docs/infrastructure-reporting.md`](docs/infrastructure-reporting.md). `report validate` checks
-bounded ZIP/XML structure, required content, redaction, and rejects external relationships.
+[`docs/infrastructure-reporting.md`](docs/infrastructure-reporting.md). `report validate` audits
+every package part for integrity, required sections/properties/images, broken or external
+relationships, production filename shape, registered raw/encoded secrets, structural credential
+fields, and prohibited content. Only a passing report is declared ready for manual upload.
 
 ```bash
 field-discovery --config /etc/field-discovery/config.yaml report generate --format docx

@@ -47,5 +47,15 @@ The renderer tests inspect the unzipped package and prove the TOC, numbering, he
 page fields, repeating table headings, portrait/landscape sections, image relationships, embedded
 assets, required report sections, metadata, template behavior, deterministic output, and absence
 of external relationships. LibreOffice conversion is run headlessly when LibreOffice/soffice is
-installed; otherwise that optional environment check is explicitly skipped. Final redaction and
-corruption validation is completed under T601.
+installed; otherwise that optional environment check is explicitly skipped.
+
+`report validate` is the final release boundary for a DOCX. It inspects every ZIP member under
+bounded entry and expanded-size limits, parses all XML/SVG parts without entity declarations,
+and verifies the production filename/date, required report sections and document properties,
+internal relationship targets and IDs, and all five embedded images. It rejects external or
+missing resources, malformed content, duplicate or unsafe package paths, structural credential
+fields, registered secrets in raw or encoded forms, and prohibited offensive content.
+
+Validation failures report only the failed check class; rejected values are never echoed. A
+report is described as ready for manual IT Glue, Datto RMM, or Autotask upload only after this
+validation succeeds. Upload itself remains an explicit operator action.

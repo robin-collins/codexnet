@@ -976,6 +976,7 @@ def test_report_cli_generates_validates_and_reports_failures(
     ]
     assert cli.run(generate, run_id="report-generate") == cli.ExitCode.SUCCESS
     generated = json.loads(capsys.readouterr().out)
+    assert generated["upload_ready"] is True
     report = Path(generated["docx"])
     assert report.is_file()
     assert Path(generated["json"]).is_file()
@@ -1000,7 +1001,9 @@ def test_report_cli_generates_validates_and_reports_failures(
     )
     validated = json.loads(capsys.readouterr().out)
     assert validated["paragraphs"] > 0
+    assert validated["validated_parts"] > 0
     assert validated["external_relationships"] == []
+    assert validated["upload_ready"] is True
 
     bad = tmp_path / "bad.docx"
     bad.write_text("not a package")
