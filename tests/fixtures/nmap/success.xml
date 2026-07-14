@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -sS -sU -O -oX fixture.xml 192.0.2.0/24" start="1784106000" version="7.95" xmloutputversion="1.05">
+  <scaninfo type="syn" protocol="tcp" numservices="2" services="22,443"/>
+  <scaninfo type="udp" protocol="udp" numservices="1" services="161"/>
+  <prescript><script id="broadcast-fixture" output="synthetic pre-scan result"/></prescript>
+  <host starttime="1784106001" endtime="1784106003">
+    <status state="up" reason="arp-response"/>
+    <address addr="192.0.2.10" addrtype="ipv4"/>
+    <address addr="02:00:00:00:00:10" addrtype="mac" vendor="Example Networks"/>
+    <hostnames><hostname name="switch-01.example.test" type="PTR"/></hostnames>
+    <ports>
+      <port protocol="tcp" portid="22"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="ssh" product="SyntheticSSH" version="1.2" extrainfo="fixture" method="probed" conf="10"><cpe>cpe:/a:example:ssh:1.2</cpe></service><script id="ssh-hostkey" output="synthetic fingerprint"/></port>
+      <port protocol="udp" portid="161"><state state="open" reason="udp-response"/><service name="snmp" method="table" conf="8"/></port>
+    </ports>
+    <os><osmatch name="Synthetic Network OS" accuracy="98" line="123"><osclass type="switch" vendor="Example Networks" osfamily="SyntheticOS" osgen="1" accuracy="98"><cpe>cpe:/o:example:syntheticos:1</cpe></osclass></osmatch></os>
+    <hostscript><script id="uptime" output="synthetic uptime"/></hostscript>
+  </host>
+  <postscript><script id="post-fixture" output="synthetic post-scan result"/></postscript>
+  <runstats><finished time="1784106004" elapsed="4.25" summary="Synthetic scan complete" exit="success"/></runstats>
+</nmaprun>

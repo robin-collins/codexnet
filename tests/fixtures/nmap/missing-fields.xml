@@ -1,0 +1,2 @@
+<?xml version="1.0"?>
+<nmaprun><host><ports><port protocol="tcp" portid="80"/></ports></host><runstats><finished exit="error"/></runstats></nmaprun>

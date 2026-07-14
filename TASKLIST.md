@@ -114,7 +114,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 
 ## Stage 2 — Existing nmap integration and minimum useful report
 
-### [ ] T200 Build the nmap XML parser
+### [x] T200 Build the nmap XML parser
 
 - **Depends on:** G1
 - **Deliver:** streaming parser for scan metadata, host state, IP/MAC/vendor, hostnames, OS guesses, ports, services, versions, and NSE results.
