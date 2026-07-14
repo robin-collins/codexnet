@@ -1,0 +1,31 @@
+# Local source material and potentially sensitive exports
+reference/chat-log.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime data and generated reports
+*.db
+*.db-shm
+*.db-wal
+artifacts/
+reports/
+logs/
+
+# Credentials and local configuration
+.env
+*.env
+secrets.*
+config.local.*
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+.DS_Store
