@@ -43,7 +43,8 @@ field-discovery --json --config config/example.yaml config validate
 Help and version output do not read configuration, require root, or contact the network. Commands
 whose implementation belongs to later tasks are visible in help and exit explicitly with status 4.
 Stable statuses are 0 (success), 2 (usage), 3 (invalid configuration), 4 (not implemented), 5
-(subnet resolution failure), 6 (database operation failure), 7 (scan refused), and 70
+(subnet resolution failure), 6 (database operation failure), 7 (scan refused), 10 (collector
+failure), 11 (operational diagnostics degraded), and 70
 (unexpected internal failure). Status 8 reports a failed nmap import operation and status 9 a
 report generation or validation failure. An invoked scan otherwise propagates the protected
 script's status.
@@ -56,6 +57,17 @@ descriptive only: it never transmits traffic or starts an active scan.
 ```bash
 field-discovery --config config/example.yaml discover subnet
 field-discovery --json --config config/example.yaml discover subnet
+```
+
+`status` performs the fast local health checks; `doctor` adds dependency, systemd, clock, Scanopy,
+and protected nmap coexistence checks. Both commands are strictly read-only, support stable JSON,
+and return status 11 when an error is detected. Warnings remain visible without making the command
+fail. See [docs/operational-diagnostics.md](docs/operational-diagnostics.md) for the schema, exact
+checks, and interpretation guidance.
+
+```bash
+field-discovery --config /etc/field-discovery/config.yaml status
+field-discovery --json --config /etc/field-discovery/config.yaml doctor
 ```
 
 `import nmap` recursively reads stable, completed `.xml` artifacts from the configured

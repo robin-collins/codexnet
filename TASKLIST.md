@@ -314,7 +314,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** valid report passes; deliberately corrupted, externally linked, missing-image, and secret-seeded reports fail clearly.
 - **Balance:** validation occurs before a report is declared ready for manual IT Glue/Datto RMM/Autotask upload.
 
-### [ ] T602 Complete operational status and diagnostics
+### [x] T602 Complete operational status and diagnostics
 
 - **Depends on:** T204, T306, T400
 - **Deliver:** `status` and `doctor` for dependencies, permissions, paths, interface/CIDR, database, disk, clock, services, collector success/failure/age/counts, and Scanopy/nmap coexistence.

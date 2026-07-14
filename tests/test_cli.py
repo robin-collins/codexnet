@@ -112,7 +112,6 @@ def test_validate_json_output_and_logs_are_machine_readable(
     "arguments",
     [
         ("collect", "passive", "status"),
-        ("doctor",),
     ],
 )
 def test_spec_placeholder_commands_are_present_and_explicit(
@@ -587,41 +586,84 @@ def test_collect_ssh_cli_rejects_missing_reference_target_and_repository_failure
     assert "offline" in capsys.readouterr().out
 
 
-def test_status_reports_recent_collector_runs(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_status_emits_stable_schema_and_collector_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    config_path, root = database_config(tmp_path)
-    repo = Repository.open(root / "discovery.db", data_root=root)
-    deployment = repo.upsert_deployment("fixture", "Fixture", "2026-01-01T00:00:00+00:00")
-    run_id = repo.start_run(deployment, "fixture", "2026-01-01T00:00:00+00:00")
-    repo.finish_run(run_id, "succeeded", "2026-01-01T00:00:01+00:00", 3)
-    repo.close()
+    config_path, _root = database_config(tmp_path)
+    report: dict[str, object] = {
+        "schema_version": 1,
+        "generated_at": "2026-07-15T00:00:00+00:00",
+        "ok": True,
+        "summary": {"checks": 1, "errors": 0, "warnings": 0},
+        "network": {"interface": "eth0", "cidr": "192.0.2.0/24"},
+        "paths": [],
+        "database": {"integrity": ["ok"]},
+        "disk": {"free_percent": 75.0},
+        "collectors": [{"collector": "fixture", "item_count": 3, "age_seconds": 5}],
+        "checks": [
+            {
+                "name": "database",
+                "category": "database",
+                "status": "ok",
+                "message": "Database integrity is healthy",
+                "details": {},
+            }
+        ],
+    }
+    monkeypatch.setattr(cli, "collect_status", lambda _configuration: report)
     assert (
         cli.run(["--json", "--config", str(config_path), "status"], run_id="status-run")
         == cli.ExitCode.SUCCESS
     )
     payload = json.loads(capsys.readouterr().out)
-    assert payload["collector_runs"][0]["collector"] == "fixture"
-    assert payload["collector_runs"][0]["item_count"] == 3
+    assert payload["schema_version"] == 1
+    assert payload["command"] == "status"
+    assert payload["collectors"][0]["collector"] == "fixture"
+    assert payload["message"] == "Appliance healthy: 0 errors, 0 warnings, 1 checks."
+    monkeypatch.setattr(cli, "collect_doctor", lambda _configuration: report)
+    assert (
+        cli.run(["--json", "--config", str(config_path), "doctor"], run_id="doctor-run")
+        == cli.ExitCode.SUCCESS
+    )
+    assert json.loads(capsys.readouterr().out)["command"] == "doctor"
 
 
-def test_status_handles_empty_and_repository_failure(
+def test_status_and_doctor_degraded_human_output_have_stable_exit_code(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config_path, _root = database_config(tmp_path)
-    assert cli.run(["--config", str(config_path), "status"], run_id="empty") == 0
-    assert capsys.readouterr().out == "No collector runs recorded.\n"
+    report: dict[str, object] = {
+        "schema_version": 1,
+        "generated_at": "2026-07-15T00:00:00+00:00",
+        "ok": False,
+        "summary": {"checks": 2, "errors": 1, "warnings": 1},
+        "checks": [
+            {
+                "name": "database",
+                "category": "database",
+                "status": "error",
+                "message": "Database is unavailable",
+                "details": {},
+            },
+            {
+                "name": "service",
+                "category": "services",
+                "status": "warning",
+                "message": "Service is not installed",
+                "details": {},
+            },
+        ],
+    }
+    monkeypatch.setattr(cli, "collect_status", lambda _configuration: report)
+    assert cli.run(["--config", str(config_path), "status"]) == cli.ExitCode.DIAGNOSTIC
+    output = capsys.readouterr().out
+    assert "Appliance degraded: 1 errors, 1 warnings, 2 checks." in output
+    assert "[ERROR] database: Database is unavailable" in output
+    assert "[WARNING] service: Service is not installed" in output
 
-    def fail(*_args: object, **_kwargs: object) -> Repository:
-        raise RepositoryError("fixture unavailable")
-
-    monkeypatch.setattr(cli.Repository, "open", fail)
-    assert (
-        cli.run(["--config", str(config_path), "status"], run_id="failed") == cli.ExitCode.DATABASE
-    )
-    captured = capsys.readouterr()
-    assert "Status failed" in captured.out
-    assert "status_failed" in captured.err
+    monkeypatch.setattr(cli, "collect_doctor", lambda _configuration: report)
+    assert cli.run(["--config", str(config_path), "doctor"]) == cli.ExitCode.DIAGNOSTIC
+    assert "Appliance degraded" in capsys.readouterr().out
 
 
 def test_scan_requires_explicit_noninteractive_confirmation(

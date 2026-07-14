@@ -40,6 +40,7 @@ from field_discovery.collectors import (
     CredentialReference,
 )
 from field_discovery.config import ConfigurationError, load_config
+from field_discovery.diagnostics import collect_doctor, collect_status
 from field_discovery.logging import configure_logging
 from field_discovery.nmap_import import NmapImportError, import_nmap_artifacts
 from field_discovery.nmap_scan import ScanLaunchError, run_nmap_scan
@@ -76,6 +77,7 @@ class ExitCode(IntEnum):
     IMPORT = 8
     REPORT = 9
     COLLECTOR = 10
+    DIAGNOSTIC = 11
 
 
 class CliParser(argparse.ArgumentParser):
@@ -188,6 +190,27 @@ def _emit(payload: dict[str, Any], *, json_mode: bool) -> None:
     print(str(payload["message"]))
 
 
+def _emit_diagnostics(report: dict[str, object], *, command: str, json_mode: bool) -> None:
+    summary = cast(dict[str, object], report["summary"])
+    state = "healthy" if report["ok"] else "degraded"
+    message = (
+        f"Appliance {state}: {summary['errors']} errors, {summary['warnings']} warnings, "
+        f"{summary['checks']} checks."
+    )
+    if json_mode:
+        print(
+            json.dumps(
+                {**report, "command": command, "message": message},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return
+    print(message)
+    for item in cast(list[dict[str, object]], report["checks"]):
+        print(f"[{str(item['status']).upper()}] {item['name']}: {item['message']}")
+
+
 def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
     """Run the CLI and return a stable exit status."""
     arguments = build_parser().parse_args(argv)
@@ -211,39 +234,13 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
         )
         return int(ExitCode.SUCCESS)
     if command == "status":
-        paths = configuration.data["paths"]
-        status_repository: Repository | None = None
-        try:
-            status_repository = Repository.open(
-                Path(paths["database"]), data_root=Path(paths["data_root"])
-            )
-            runs = status_repository.recent_collector_runs()
-            message = (
-                "No collector runs recorded."
-                if not runs
-                else f"Collector runs: {len(runs)} shown; latest {runs[0]['collector']} "
-                f"{runs[0]['status']}."
-            )
-            _emit(
-                {
-                    "ok": True,
-                    "command": command,
-                    "message": message,
-                    "collector_runs": list(runs),
-                },
-                json_mode=arguments.json_mode,
-            )
-            return int(ExitCode.SUCCESS)
-        except (RepositoryError, sqlite3.Error, OSError) as exc:
-            logger.error("status_failed", extra={"command": command, "reason": str(exc)})
-            _emit(
-                {"ok": False, "command": command, "message": f"Status failed: {exc}"},
-                json_mode=arguments.json_mode,
-            )
-            return int(ExitCode.DATABASE)
-        finally:
-            if status_repository is not None:
-                status_repository.close()
+        report = collect_status(configuration.data)
+        _emit_diagnostics(report, command=command, json_mode=arguments.json_mode)
+        return int(ExitCode.SUCCESS if report["ok"] else ExitCode.DIAGNOSTIC)
+    if command == "doctor":
+        report = collect_doctor(configuration.data)
+        _emit_diagnostics(report, command=command, json_mode=arguments.json_mode)
+        return int(ExitCode.SUCCESS if report["ok"] else ExitCode.DIAGNOSTIC)
     if command == "discover subnet":
         try:
             description = resolve_subnet(configuration.data)
