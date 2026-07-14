@@ -20,6 +20,14 @@ exact string membership immediately before every call. Abbreviations, extra argu
 configuration display, configuration mode, copy/save/write, reload, and arbitrary operator input
 are rejected. The collector never enters enable or configuration mode.
 
+The pinned Netmiko drivers' automatic setup and teardown strings are enumerated in
+`NETMIKO_SESSION_CONTROL_ALLOWLIST` and covered by the same exact-membership audit. Cisco and
+Comware use only transient display controls and logout. Netmiko's Aruba/ProCurve drivers enter
+enable mode during automatic setup, so CodexNet uses Netmiko's generic SSH channel for
+ArubaOS-Switch instead and sends only the exact `no page` and operational allowlist. Aruba output
+may consequently be retained as a disclosed parse fallback rather than risking a hidden privilege
+transition.
+
 The paging commands (`terminal length 0`, `screen-length disable`, and `no page`) affect only the
 interactive session. A paging marker that remains in output is sanitized and disclosed as a
 partial-result issue.
@@ -27,10 +35,12 @@ partial-result issue.
 ## Sessions, parsing, and artifacts
 
 The collector uses a small asynchronous session protocol. `NetmikoSessionFactory` is the live
-adapter and imports Netmiko only when an actual SSH connection is requested, allowing the core and
-offline test environment to remain dependency-safe. A deployed SSH-enabled appliance must install
-Netmiko and its TextFSM/NTC template support. Session fakes implement the same boundary for tests;
-tests never contact a live device.
+adapter and imports the pinned Netmiko/TextFSM/NTC stack only when an actual SSH connection is
+requested. Session fakes implement the same boundary for most tests. The G4 lab test additionally
+crosses the real Netmiko/Paramiko transport boundary against a disposable synthetic device bound
+only to an unprivileged `127.0.0.1` port. It uses a generated host key and synthetic credential,
+accepts only the audited operational commands, retains no capture, and never changes a system
+service or contacts another interface.
 
 Netmiko structured output is stored as provenance-aware observations. When no TextFSM template
 matches, the raw text is retained and the observation is explicitly marked as a parse fallback,

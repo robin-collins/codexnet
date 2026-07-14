@@ -1,22 +1,35 @@
 # Reproducible developer/test environment for CPython 3.11-3.13 on Linux ARM64.
 -e .
+bcrypt==5.0.0
 cffi==2.1.0
 coverage[toml]==7.9.2
 cryptography==49.0.0
 dnspython==2.8.0
 iniconfig==2.3.0
+invoke==3.0.3
 ldap3==2.9.1
+markdown-it-py==4.2.0
+mdurl==0.1.2
 mypy==1.15.0
 mypy-extensions==1.1.0
+netmiko==4.7.0
+ntc-templates==9.2.0
 packaging==26.2
+paramiko==4.0.0
 pluggy==1.6.0
 pyasn1==0.6.4
 pycparser==3.0
 Pygments==2.20.0
+pynacl==1.6.2
+pyserial==3.5
 PyYAML==6.0.2
 pysnmp==7.1.27
 pytest==8.4.1
 pytest-cov==6.2.1
 ruff==0.12.4
+rich==15.0.0
+ruamel.yaml==0.19.1
+scp==0.16.0
+textfsm==2.1.0
 typing-extensions==4.16.0
 types-PyYAML==6.0.12.20250516

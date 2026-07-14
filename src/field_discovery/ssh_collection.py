@@ -47,7 +47,9 @@ _PLATFORM_ALIASES = {
 _NETMIKO_DEVICE_TYPES = {
     "cisco_ios": "cisco_ios",
     "hp_comware": "hp_comware",
-    "aruba_aos": "aruba_os",
+    # Vendor drivers enter enable mode during automatic setup. A generic channel avoids that
+    # hidden privilege transition while CodexNet still sends its exact Aruba allowlist.
+    "aruba_aos": "terminal_server",
 }
 
 
@@ -152,6 +154,14 @@ COMMAND_PROFILES: dict[str, CommandProfile] = {
     ),
 }
 
+# Netmiko sends these transient display/session controls during setup and teardown. They are
+# pinned-version behavior audited beside the collector's explicit operational commands.
+NETMIKO_SESSION_CONTROL_ALLOWLIST: dict[str, tuple[str, ...]] = {
+    "cisco_ios": ("terminal width 511", "terminal length 0", "exit"),
+    "hp_comware": ("screen-length disable", "quit"),
+    "aruba_aos": ("no page",),
+}
+
 
 def select_platform(*, explicit: str | None = None, evidence: Sequence[str] = ()) -> str:
     """Select a supported platform only when explicit or unambiguous evidence exists."""
@@ -178,9 +188,10 @@ def approved_commands(platform: str) -> tuple[str, ...]:
     """Expose the auditable exact allowlist including the session-only paging command."""
     try:
         profile = COMMAND_PROFILES[platform]
+        controls = NETMIKO_SESSION_CONTROL_ALLOWLIST[platform]
     except KeyError as exc:
         raise UnknownPlatformError("SSH platform is not supported") from exc
-    return (profile.paging_command, *profile.commands)
+    return tuple(dict.fromkeys((*controls, profile.paging_command, *profile.commands)))
 
 
 def require_approved_command(platform: str, command: str) -> str:
@@ -199,7 +210,7 @@ def _credential_profile(raw: str) -> Mapping[str, str]:
         isinstance(key, str) and isinstance(item, str) for key, item in value.items()
     ):
         raise SSHCollectionError("referenced SSH credential profile must be a string mapping")
-    allowed = {"username", "password", "key_file", "passphrase", "port"}
+    allowed = {"username", "password", "key_file", "passphrase", "port", "known_hosts_file"}
     if set(value) - allowed or not value.get("username"):
         raise SSHCollectionError("referenced SSH credential profile has unsupported fields")
     if not value.get("password") and not value.get("key_file"):
@@ -328,6 +339,7 @@ class NetmikoSessionFactory:
             "auth_timeout": 20,
             "banner_timeout": 20,
             "ssh_strict": host_key_policy == "strict",
+            "system_host_keys": host_key_policy == "strict",
         }
         if credential.get("password"):
             parameters["password"] = credential["password"]
@@ -341,6 +353,21 @@ class NetmikoSessionFactory:
             )
         if credential.get("port"):
             parameters["port"] = int(credential["port"])
+        if credential.get("known_hosts_file"):
+            known_hosts = Path(credential["known_hosts_file"])
+            try:
+                info = known_hosts.lstat()
+            except OSError as exc:
+                raise SSHCollectionError("SSH known-hosts file is unavailable") from exc
+            if (
+                not known_hosts.is_absolute()
+                or stat.S_ISLNK(info.st_mode)
+                or not stat.S_ISREG(info.st_mode)
+            ):
+                raise SSHCollectionError(
+                    "SSH known-hosts file must be an absolute regular non-symlink"
+                )
+            parameters.update({"alt_host_keys": True, "alt_key_file": str(known_hosts)})
         try:
             connection = await asyncio.to_thread(ConnectHandler, **parameters)
         except Exception as exc:

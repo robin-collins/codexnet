@@ -148,7 +148,7 @@ def test_unknown_or_ambiguous_platform_is_rejected(
 @pytest.mark.parametrize("platform", sorted(COMMAND_PROFILES))
 def test_allowlist_accepts_only_exact_audited_commands(platform: str) -> None:
     commands = approved_commands(platform)
-    assert commands[0] == COMMAND_PROFILES[platform].paging_command
+    assert COMMAND_PROFILES[platform].paging_command in commands
     for command in commands:
         assert require_approved_command(platform, command) == command
     for rejected in (
@@ -492,7 +492,9 @@ def test_netmiko_adapter_passes_in_memory_profile_and_runs_commands(
     assert connection.disconnected
 
 
-def test_netmiko_maps_aruba_platform_name(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_netmiko_uses_non_privilege_escalating_aruba_channel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     parameters: dict[str, object] = {}
 
     def handler(**kwargs: object) -> FakeConnection:
@@ -508,7 +510,50 @@ def test_netmiko_maps_aruba_platform_name(monkeypatch: pytest.MonkeyPatch) -> No
             host_key_policy="strict",
         )
     )
-    assert parameters["device_type"] == "aruba_os"
+    assert parameters["device_type"] == "terminal_server"
+
+
+def test_netmiko_strict_known_hosts_file_is_validated_before_connect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = 0
+
+    def handler(**_kwargs: object) -> FakeConnection:
+        nonlocal calls
+        calls += 1
+        return FakeConnection()
+
+    install_fake_netmiko(monkeypatch, handler)
+    base_profile = {"username": "u", "password": "p"}
+    missing = tmp_path / "missing-known-hosts"
+    with pytest.raises(SSHCollectionError, match="unavailable"):
+        asyncio.run(
+            NetmikoSessionFactory().connect(
+                "192.0.2.1",
+                "cisco_ios",
+                {**base_profile, "known_hosts_file": str(missing)},
+                host_key_policy="strict",
+            )
+        )
+
+    regular = tmp_path / "known_hosts"
+    regular.write_text("fixture.invalid ssh-rsa synthetic\n")
+    monkeypatch.chdir(tmp_path)
+    invalid_paths = ["known_hosts", str(tmp_path)]
+    linked = tmp_path / "linked-known-hosts"
+    linked.symlink_to(regular)
+    invalid_paths.append(str(linked))
+    for path in invalid_paths:
+        with pytest.raises(SSHCollectionError, match="absolute regular non-symlink"):
+            asyncio.run(
+                NetmikoSessionFactory().connect(
+                    "192.0.2.1",
+                    "cisco_ios",
+                    {**base_profile, "known_hosts_file": path},
+                    host_key_policy="strict",
+                )
+            )
+    assert calls == 0
 
 
 @pytest.mark.parametrize(

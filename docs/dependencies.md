@@ -15,6 +15,14 @@ base-scope RootDSE reads. Both publish platform-independent `py3-none-any` wheel
 native compilation on Debian ARM64. ldap3 reuses the already pinned PyASN1 dependency. Detection
 constructs no authenticated LDAP connection; credential-gated collection belongs to T503.
 
+T403's live SSH boundary requires Netmiko 4.7.0 and NTC Templates 9.2.0; both are runtime-pinned
+and publish platform-independent wheels. Netmiko uses Paramiko 4.0.0 for SSH and TextFSM 2.1.0
+with NTC Templates for structured operational-command parsing. The lock also pins Paramiko's
+ARM64-wheel dependencies (bcrypt 5.0.0 and PyNaCl 1.6.2) and Netmiko's pure-Python dependencies.
+No compiler is required on supported Debian ARM64. The G4 transport test starts a synthetic SSH
+device on an unprivileged loopback port and crosses the real Netmiko/Paramiko boundary; it never
+contacts an external device.
+
 Build and quality tools are exact-version constrained in `requirements-dev.lock`. The selected
 Ruff, mypy, pytest, pytest-cov, coverage, and setuptools releases publish platform-independent
 wheels or Linux AArch64 wheels and do not become appliance runtime dependencies. Before adding a

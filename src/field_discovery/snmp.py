@@ -567,8 +567,15 @@ _PRIV_PROTOCOLS: dict[str, Any] = {
 }
 
 
+@dataclass(frozen=True)
 class PySnmpTransport:
     """Async UDP transport using PySNMP with one engine per isolated run."""
+
+    endpoint_port: int = 161
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.endpoint_port <= 65_535:
+            raise SnmpConfigurationError("SNMP transport endpoint port is invalid")
 
     async def collect(
         self,
@@ -584,7 +591,7 @@ class PySnmpTransport:
         engine = SnmpEngine()
         auth = _pysnmp_auth(credential)
         transport = await UdpTransportTarget.create(
-            (target, 161), timeout=timeout_seconds, retries=0
+            (target, self.endpoint_port), timeout=timeout_seconds, retries=0
         )
         context = ContextData()
         values: list[SnmpVarBind] = []
