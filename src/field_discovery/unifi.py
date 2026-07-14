@@ -34,6 +34,7 @@ DEFAULT_MAX_PAGES = 25
 DEFAULT_MAX_ITEMS = 5_000
 _KNOWN_PORTS = {443, 8443}
 _KNOWN_MDNS_TYPES = {"_unifi._tcp", "_unifi._tcp.local"}
+_LOGIN_PATHS = {"modern": "/api/auth/login", "legacy": "/api/login"}
 _READ_ONLY_RESOURCES = {
     "sites",
     "devices",
@@ -342,7 +343,17 @@ class UniFiClient:
     async def _request(
         self, method: str, path: str, *, payload: Mapping[str, object] | None = None
     ) -> HttpResponse:
-        if method not in {"GET", "POST"} or (method == "POST" and "login" not in path):
+        parsed_path = urlsplit(path)
+        origin_relative = (
+            path.startswith("/")
+            and not path.startswith("//")
+            and not parsed_path.scheme
+            and not parsed_path.netloc
+            and not parsed_path.fragment
+        )
+        read_request = method == "GET" and payload is None
+        login_request = method == "POST" and path == _LOGIN_PATHS[self.endpoint.api_type]
+        if not origin_relative or not (read_request or login_request):
             raise UniFiError("UniFi client refused a non-read-only operation")
         body = None if payload is None else json.dumps(payload, separators=(",", ":")).encode()
         headers = {"Accept": "application/json", **self._headers}

@@ -209,6 +209,39 @@ async def test_read_authorization_timeout_malformed_and_allowlist_failures() -> 
         await api._request("DELETE", "/api/site/default/device")
 
 
+@pytest.mark.parametrize(
+    ("api_type", "method", "path", "payload"),
+    [
+        ("modern", "POST", "/api/login", {"username": "fixture"}),
+        ("legacy", "POST", "/api/auth/login", {"username": "fixture"}),
+        ("modern", "POST", "/api/auth/login/write", {}),
+        ("modern", "POST", "/api/s/default/rest/networkconf/login/write", {}),
+        ("modern", "POST", "/api/auth/../auth/login", {}),
+        ("modern", "POST", "/api/%61uth/login", {}),
+        ("modern", "POST", "/API/AUTH/LOGIN", {}),
+        ("modern", "POST", "/api/auth/login?next=write", {}),
+        ("modern", "POST", "/api/auth/login#fragment", {}),
+        ("modern", "POST", "api/auth/login", {}),
+        ("modern", "POST", "/api/auth/login/", {}),
+        ("modern", "PUT", "/api/auth/login", {}),
+        ("modern", "PATCH", "/api/auth/login", {}),
+        ("modern", "DELETE", "/api/auth/login", {}),
+        ("modern", "post", "/api/auth/login", {}),
+        ("modern", "GET", "/api/self/sites", {}),
+        ("modern", "GET", "//other.invalid/api/self/sites", None),
+        ("modern", "GET", "https://other.invalid/api/self/sites", None),
+    ],
+)
+@async_test
+async def test_request_guard_denies_login_near_misses_and_write_methods_before_transport(
+    api_type: str, method: str, path: str, payload: Mapping[str, object] | None
+) -> None:
+    api, transport = client([], api_type=api_type)
+    with pytest.raises(UniFiError, match="non-read-only"):
+        await api._request(method, path, payload=payload)
+    assert transport.requests == []
+
+
 def test_endpoint_requires_scoped_tls_opt_in_and_known_api() -> None:
     assert endpoint_from_config({"url": "https://controller.invalid"}).verify_tls
     assert (
