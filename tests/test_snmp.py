@@ -23,6 +23,8 @@ from field_discovery.redaction import REDACTED, Redactor
 from field_discovery.repository import Repository
 from field_discovery.snmp import (
     BASE_OID_REGISTRY,
+    DEFAULT_OID_REGISTRY,
+    INFRASTRUCTURE_OID_REGISTRY,
     MAX_SECRET_BYTES,
     MAX_VALUE_CHARS,
     OidField,
@@ -375,6 +377,136 @@ def test_oid_registry_contains_required_base_domains() -> None:
     assert any(name.startswith("snmp.address.") for name in facts)
     assert any(name.startswith("snmp.lldp.") for name in facts)
     assert len({field.oid for field in BASE_OID_REGISTRY}) == len(BASE_OID_REGISTRY)
+
+
+def fixture_varbinds(name: str) -> tuple[SnmpVarBind, ...]:
+    document = json.loads((Path(__file__).parent / "fixtures" / "snmp" / name).read_text())
+    assert "synthetic" in document["fixture"].casefold()
+    return tuple(SnmpVarBind(item["oid"], item["value"]) for item in document["varbinds"])
+
+
+def facts_by_type(name: str) -> dict[str, list[dict[str, object]]]:
+    facts, issues = normalize_varbinds(fixture_varbinds(name), DEFAULT_OID_REGISTRY, max_unknown=0)
+    assert issues == ()
+    output: dict[str, list[dict[str, object]]] = {}
+    for fact_type, value in facts:
+        output.setdefault(fact_type, []).append(value)
+    return output
+
+
+def test_infrastructure_registry_is_unique_and_covers_every_required_domain() -> None:
+    facts = {field.fact_type for field in INFRASTRUCTURE_OID_REGISTRY}
+    for prefix in (
+        "snmp.bridge.",
+        "snmp.neighbor.",
+        "snmp.vlan.",
+        "snmp.poe.",
+        "snmp.environment.",
+        "snmp.ups.",
+        "snmp.printer.",
+        "snmp.firmware.",
+    ):
+        assert any(fact.startswith(prefix) for fact in facts)
+    assert len({field.oid for field in DEFAULT_OID_REGISTRY}) == len(DEFAULT_OID_REGISTRY)
+
+
+def test_synthetic_switch_fixtures_normalize_bridge_neighbor_vlan_poe_and_versions() -> None:
+    cisco = facts_by_type("cisco-switch.json")
+    assert cisco["snmp.bridge.mac"][0]["value"] == "02:00:00:00:00:0a"
+    assert cisco["snmp.bridge.status"][0]["label"] == "learned"
+    assert cisco["snmp.neighbor.ipv4"][0]["value"] == "192.0.2.10"
+    assert cisco["snmp.neighbor.mapping_type"][0]["label"] == "dynamic"
+    assert cisco["snmp.poe.port.detection_status"][0]["label"] == "delivering_power"
+    assert cisco["snmp.poe.main.power_budget"][0] == {
+        "index": "1",
+        "value": 370,
+        "unit": "W",
+    }
+    assert cisco["snmp.firmware.revision"][0]["value"] == "fixture-firmware-1.2.3"
+    assert cisco["snmp.software.revision"][0]["value"] == "fixture-software-4.5.6"
+    assert not any("vulnerab" in fact.casefold() for fact in cisco)
+
+    aruba = facts_by_type("aruba-switch.json")
+    assert aruba["snmp.vlan.name"][0] == {"index": "10", "value": "Fixture-Users"}
+    assert aruba["snmp.vlan.egress_ports"][0]["value"] == "c000"
+    assert aruba["snmp.vlan.forbidden_ports"][0]["value"] == "0000"
+    assert aruba["snmp.vlan.untagged_ports"][0]["value"] == "8000"
+    assert aruba["snmp.vlan.row_status"][0]["label"] == "active"
+
+
+def test_synthetic_ups_fixture_preserves_native_units_and_enum_meaning() -> None:
+    facts = facts_by_type("ups.json")
+    assert facts["snmp.ups.battery.status"][0] == {
+        "index": "",
+        "value": 2,
+        "label": "normal",
+    }
+    assert facts["snmp.ups.battery.seconds_on_battery"][0]["unit"] == "s"
+    assert facts["snmp.ups.battery.runtime_remaining"][0]["unit"] == "min"
+    assert facts["snmp.ups.battery.charge_remaining"][0] == {
+        "index": "",
+        "value": 97,
+        "unit": "%",
+    }
+    assert facts["snmp.ups.battery.voltage"][0]["unit"] == "0.1 V DC"
+    assert facts["snmp.ups.battery.current"][0]["unit"] == "0.1 A DC"
+    assert facts["snmp.ups.battery.temperature"][0]["unit"] == "°C"
+
+
+def test_synthetic_printer_fixture_preserves_counts_units_and_unknown_sentinels() -> None:
+    facts = facts_by_type("printer.json")
+    assert facts["snmp.printer.marker.life_count"][0]["value"] == 12345
+    assert facts["snmp.printer.marker.counter_unit"][0] == {
+        "index": "1.1",
+        "value": 7,
+        "label": "impressions",
+    }
+    assert facts["snmp.printer.supply.unit"][0] == {
+        "index": "1.1",
+        "value": 19,
+        "label": "percent",
+    }
+    assert facts["snmp.printer.supply.maximum_capacity"][0]["value"] == 100
+    unknown_capacity = facts["snmp.printer.supply.maximum_capacity"][1]
+    assert unknown_capacity == {
+        "index": "1.2",
+        "value": None,
+        "value_status": "unknown",
+        "raw_value": "-2",
+    }
+    some_remaining = facts["snmp.printer.supply.level"][1]
+    assert some_remaining["value"] is None
+    assert some_remaining["value_status"] == "some_remaining"
+    assert some_remaining["raw_value"] == "-3"
+
+
+def test_synthetic_environment_fixture_preserves_scale_precision_unit_and_time() -> None:
+    facts = facts_by_type("environment.json")
+    assert facts["snmp.environment.sensor.type"][0]["label"] == "celsius"
+    assert facts["snmp.environment.sensor.scale"][0]["label"] == "units"
+    assert facts["snmp.environment.sensor.precision"][0]["unit"] == "decimal_places"
+    assert facts["snmp.environment.sensor.value"][0]["value"] == 245
+    assert facts["snmp.environment.sensor.units_display"][0]["value"] == "degrees C"
+    assert facts["snmp.environment.sensor.timestamp"][0] == {
+        "index": "100",
+        "value": 7200,
+        "unit": "centiseconds",
+    }
+
+
+def test_missing_and_unknown_enum_values_are_tolerated_without_inference() -> None:
+    facts, issues = normalize_varbinds((), DEFAULT_OID_REGISTRY, max_unknown=0)
+    assert facts == () and issues == ()
+    facts, issues = normalize_varbinds(
+        (
+            SnmpVarBind("1.3.6.1.2.1.33.1.2.1.0", "99"),
+            SnmpVarBind("1.3.6.1.2.1.17.7.1.4.3.1.2.10", "not-a-bitmap"),
+        ),
+        DEFAULT_OID_REGISTRY,
+        max_unknown=0,
+    )
+    assert facts == (("snmp.ups.battery.status", {"index": "", "value": 99}),)
+    assert [issue.category for issue in issues] == ["invalid_value"]
 
 
 def test_transport_protocol_stub_has_no_runtime_behavior() -> None:
@@ -761,6 +893,43 @@ def test_snmp_collector_persists_base_and_bounded_raw_observations(tmp_path: Pat
     assert all('"target":"192.168.50.2"' in value for value in values)
     assert any(REDACTED in value for value in values)
     assert all("auth-secret" not in value for value in values)
+    repository.close()
+
+
+def test_snmp_collector_persists_infrastructure_source_time_and_units(tmp_path: Path) -> None:
+    repository, deployment = create_repository(tmp_path)
+    secret_file = tmp_path / "secrets.env"
+    secret_file.write_text(
+        "SNMP_PROFILE=" + profile({"username": "user", "auth_key": "auth-secret"})
+    )
+    secret_file.chmod(0o600)
+    transport = FakeTransport(SnmpResponse(fixture_varbinds("ups.json")))
+    collector = SnmpCollector(
+        repository,
+        deployment,
+        "v3",
+        False,
+        {"site": {"type": "env_file", "path": str(secret_file)}},
+        transport=transport,
+        clock=lambda: NOW,
+    )
+    result = asyncio.run(
+        collector.collect(
+            CollectorContext(
+                "192.168.50.5",
+                CredentialReference("site", "SNMP_PROFILE"),
+                asyncio.Event(),
+            )
+        )
+    )
+    assert result.item_count == len(fixture_varbinds("ups.json"))
+    rows = repository.connection.execute(
+        "SELECT fact_type, fact_value_json, source, observed_at FROM observations ORDER BY id"
+    ).fetchall()
+    assert all(row["source"] == "snmp" and row["observed_at"] == NOW.isoformat() for row in rows)
+    runtime = next(row for row in rows if row["fact_type"].endswith("runtime_remaining"))
+    assert json.loads(runtime["fact_value_json"])["unit"] == "min"
+    assert all("vulnerability" not in row["fact_value_json"].casefold() for row in rows)
     repository.close()
 
 

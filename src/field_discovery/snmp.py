@@ -246,6 +246,9 @@ class OidField:
     fact_type: str
     table: bool = False
     value_kind: str = "text"
+    unit: str | None = None
+    enum_labels: tuple[tuple[int, str], ...] = ()
+    special_values: tuple[tuple[str, str], ...] = ()
 
 
 SYSTEM_PROFILE = (
@@ -273,6 +276,253 @@ LLDP_PROFILE = (
     OidField("1.0.8802.1.1.2.1.4.1.1.10", "snmp.lldp.remote.description", True),
 )
 BASE_OID_REGISTRY = SYSTEM_PROFILE + INTERFACE_PROFILE + ADDRESS_PROFILE + LLDP_PROFILE
+
+BRIDGE_PROFILE = (
+    OidField("1.3.6.1.2.1.17.4.3.1.1", "snmp.bridge.mac", True, "mac"),
+    OidField("1.3.6.1.2.1.17.4.3.1.2", "snmp.bridge.port", True, "integer"),
+    OidField(
+        "1.3.6.1.2.1.17.4.3.1.3",
+        "snmp.bridge.status",
+        True,
+        "integer",
+        enum_labels=((1, "other"), (2, "invalid"), (3, "learned"), (4, "self"), (5, "management")),
+    ),
+)
+NEIGHBOR_PROFILE = (
+    OidField("1.3.6.1.2.1.4.22.1.1", "snmp.neighbor.interface_index", True, "integer"),
+    OidField("1.3.6.1.2.1.4.22.1.2", "snmp.neighbor.mac", True, "mac"),
+    OidField("1.3.6.1.2.1.4.22.1.3", "snmp.neighbor.ipv4", True, "ipv4"),
+    OidField(
+        "1.3.6.1.2.1.4.22.1.4",
+        "snmp.neighbor.mapping_type",
+        True,
+        "integer",
+        enum_labels=((1, "other"), (2, "invalid"), (3, "dynamic"), (4, "static")),
+    ),
+)
+VLAN_PROFILE = (
+    OidField("1.3.6.1.2.1.17.7.1.4.3.1.1", "snmp.vlan.name", True),
+    OidField("1.3.6.1.2.1.17.7.1.4.3.1.2", "snmp.vlan.egress_ports", True, "hex_bytes"),
+    OidField("1.3.6.1.2.1.17.7.1.4.3.1.3", "snmp.vlan.forbidden_ports", True, "hex_bytes"),
+    OidField("1.3.6.1.2.1.17.7.1.4.3.1.4", "snmp.vlan.untagged_ports", True, "hex_bytes"),
+    OidField(
+        "1.3.6.1.2.1.17.7.1.4.3.1.5",
+        "snmp.vlan.row_status",
+        True,
+        "integer",
+        enum_labels=(
+            (1, "active"),
+            (2, "not_in_service"),
+            (3, "not_ready"),
+            (4, "create_and_go"),
+            (5, "create_and_wait"),
+            (6, "destroy"),
+        ),
+    ),
+)
+POE_PROFILE = (
+    OidField(
+        "1.3.6.1.2.1.105.1.1.1.3",
+        "snmp.poe.port.admin_state",
+        True,
+        "integer",
+        enum_labels=((1, "enabled"), (2, "disabled")),
+    ),
+    OidField(
+        "1.3.6.1.2.1.105.1.1.1.6",
+        "snmp.poe.port.detection_status",
+        True,
+        "integer",
+        enum_labels=(
+            (1, "disabled"),
+            (2, "searching"),
+            (3, "delivering_power"),
+            (4, "fault"),
+            (5, "test"),
+            (6, "other_fault"),
+        ),
+    ),
+    OidField(
+        "1.3.6.1.2.1.105.1.1.1.7",
+        "snmp.poe.port.priority",
+        True,
+        "integer",
+        enum_labels=((1, "critical"), (2, "high"), (3, "low")),
+    ),
+    OidField("1.3.6.1.2.1.105.1.1.1.13", "snmp.poe.port.class", True, "integer"),
+    OidField("1.3.6.1.2.1.105.1.3.1.1.2", "snmp.poe.main.power_budget", True, "integer", "W"),
+    OidField("1.3.6.1.2.1.105.1.3.1.1.4", "snmp.poe.main.power_consumption", True, "integer", "W"),
+)
+ENVIRONMENT_PROFILE = (
+    OidField(
+        "1.3.6.1.2.1.99.1.1.1.1",
+        "snmp.environment.sensor.type",
+        True,
+        "integer",
+        enum_labels=(
+            (1, "other"),
+            (2, "unknown"),
+            (3, "volts_ac"),
+            (4, "volts_dc"),
+            (5, "amperes"),
+            (6, "watts"),
+            (7, "hertz"),
+            (8, "celsius"),
+            (9, "percent_relative_humidity"),
+            (10, "rpm"),
+        ),
+    ),
+    OidField(
+        "1.3.6.1.2.1.99.1.1.1.2",
+        "snmp.environment.sensor.scale",
+        True,
+        "integer",
+        enum_labels=(
+            (1, "yocto"),
+            (2, "zepto"),
+            (3, "atto"),
+            (4, "femto"),
+            (5, "pico"),
+            (6, "nano"),
+            (7, "micro"),
+            (8, "milli"),
+            (9, "units"),
+            (10, "kilo"),
+            (11, "mega"),
+            (12, "giga"),
+            (13, "tera"),
+            (14, "exa"),
+            (15, "peta"),
+            (16, "zetta"),
+            (17, "yotta"),
+        ),
+    ),
+    OidField(
+        "1.3.6.1.2.1.99.1.1.1.3",
+        "snmp.environment.sensor.precision",
+        True,
+        "integer",
+        "decimal_places",
+    ),
+    OidField("1.3.6.1.2.1.99.1.1.1.4", "snmp.environment.sensor.value", True, "integer"),
+    OidField(
+        "1.3.6.1.2.1.99.1.1.1.5",
+        "snmp.environment.sensor.oper_state",
+        True,
+        "integer",
+        enum_labels=((1, "ok"), (2, "unavailable"), (3, "nonoperational")),
+    ),
+    OidField("1.3.6.1.2.1.99.1.1.1.6", "snmp.environment.sensor.units_display", True),
+    OidField(
+        "1.3.6.1.2.1.99.1.1.1.7",
+        "snmp.environment.sensor.timestamp",
+        True,
+        "integer",
+        "centiseconds",
+    ),
+)
+UPS_PROFILE = (
+    OidField(
+        "1.3.6.1.2.1.33.1.2.1.0",
+        "snmp.ups.battery.status",
+        enum_labels=((1, "unknown"), (2, "normal"), (3, "low"), (4, "depleted")),
+        value_kind="integer",
+    ),
+    OidField(
+        "1.3.6.1.2.1.33.1.2.2.0",
+        "snmp.ups.battery.seconds_on_battery",
+        value_kind="integer",
+        unit="s",
+    ),
+    OidField(
+        "1.3.6.1.2.1.33.1.2.3.0",
+        "snmp.ups.battery.runtime_remaining",
+        value_kind="integer",
+        unit="min",
+    ),
+    OidField(
+        "1.3.6.1.2.1.33.1.2.4.0",
+        "snmp.ups.battery.charge_remaining",
+        value_kind="integer",
+        unit="%",
+    ),
+    OidField(
+        "1.3.6.1.2.1.33.1.2.5.0", "snmp.ups.battery.voltage", value_kind="integer", unit="0.1 V DC"
+    ),
+    OidField(
+        "1.3.6.1.2.1.33.1.2.6.0", "snmp.ups.battery.current", value_kind="integer", unit="0.1 A DC"
+    ),
+    OidField(
+        "1.3.6.1.2.1.33.1.2.7.0", "snmp.ups.battery.temperature", value_kind="integer", unit="°C"
+    ),
+)
+PRINTER_PROFILE = (
+    OidField("1.3.6.1.2.1.43.5.1.1.17", "snmp.printer.serial", True),
+    OidField(
+        "1.3.6.1.2.1.43.10.2.1.3",
+        "snmp.printer.marker.counter_unit",
+        True,
+        "integer",
+        enum_labels=(
+            (1, "other"),
+            (2, "unknown"),
+            (5, "characters"),
+            (6, "lines"),
+            (7, "impressions"),
+            (8, "sheets"),
+            (11, "hours"),
+        ),
+    ),
+    OidField("1.3.6.1.2.1.43.10.2.1.4", "snmp.printer.marker.life_count", True, "integer"),
+    OidField("1.3.6.1.2.1.43.11.1.1.4", "snmp.printer.supply.class", True, "integer"),
+    OidField("1.3.6.1.2.1.43.11.1.1.5", "snmp.printer.supply.type", True, "integer"),
+    OidField("1.3.6.1.2.1.43.11.1.1.6", "snmp.printer.supply.description", True),
+    OidField(
+        "1.3.6.1.2.1.43.11.1.1.7",
+        "snmp.printer.supply.unit",
+        True,
+        "integer",
+        enum_labels=(
+            (1, "other"),
+            (2, "unknown"),
+            (16, "feet"),
+            (17, "meters"),
+            (18, "items"),
+            (19, "percent"),
+        ),
+    ),
+    OidField(
+        "1.3.6.1.2.1.43.11.1.1.8",
+        "snmp.printer.supply.maximum_capacity",
+        True,
+        "integer",
+        special_values=(("-1", "other"), ("-2", "unknown")),
+    ),
+    OidField(
+        "1.3.6.1.2.1.43.11.1.1.9",
+        "snmp.printer.supply.level",
+        True,
+        "integer",
+        special_values=(("-1", "other"), ("-2", "unknown"), ("-3", "some_remaining")),
+    ),
+)
+FIRMWARE_PROFILE = (
+    OidField("1.3.6.1.2.1.47.1.1.1.1.9", "snmp.firmware.revision", True),
+    OidField("1.3.6.1.2.1.47.1.1.1.1.10", "snmp.software.revision", True),
+    OidField("1.3.6.1.2.1.47.1.1.1.1.11", "snmp.inventory.serial", True),
+    OidField("1.3.6.1.2.1.47.1.1.1.1.13", "snmp.inventory.model", True),
+)
+INFRASTRUCTURE_OID_REGISTRY = (
+    BRIDGE_PROFILE
+    + NEIGHBOR_PROFILE
+    + VLAN_PROFILE
+    + POE_PROFILE
+    + ENVIRONMENT_PROFILE
+    + UPS_PROFILE
+    + PRINTER_PROFILE
+    + FIRMWARE_PROFILE
+)
+DEFAULT_OID_REGISTRY = BASE_OID_REGISTRY + INFRASTRUCTURE_OID_REGISTRY
 
 
 @dataclass(frozen=True)
@@ -444,7 +694,7 @@ class SnmpCollector:
     allow_insecure_v2c: bool
     providers: Mapping[str, Mapping[str, object]]
     transport: SnmpTransport = field(default_factory=PySnmpTransport)
-    registry: Sequence[OidField] = BASE_OID_REGISTRY
+    registry: Sequence[OidField] = DEFAULT_OID_REGISTRY
     max_table_rows: int = 4_096
     max_unknown_oids: int = 128
     timeout_seconds: float = 5
@@ -544,12 +794,30 @@ def normalize_varbinds(
                 unknown += 1
             continue
         index = varbind.oid[len(matched.oid) :].lstrip(".") if matched.table else ""
-        try:
-            value = _normalize_value(varbind.value, matched.value_kind, scrubber)
-        except (TypeError, ValueError):
-            issues.append(CollectorIssue("invalid_value", f"OID {varbind.oid} value was invalid"))
-            continue
-        facts.append((matched.fact_type, {"index": index, "value": value}))
+        text_value = scrubber.text(varbind.value)[:MAX_VALUE_CHARS]
+        special = dict(matched.special_values).get(text_value)
+        if special is not None:
+            payload: dict[str, object] = {
+                "index": index,
+                "value": None,
+                "value_status": special,
+                "raw_value": text_value,
+            }
+        else:
+            try:
+                value = _normalize_value(text_value, matched.value_kind, scrubber)
+            except (TypeError, ValueError):
+                issues.append(
+                    CollectorIssue("invalid_value", f"OID {varbind.oid} value was invalid")
+                )
+                continue
+            payload = {"index": index, "value": value}
+            label = dict(matched.enum_labels).get(value) if isinstance(value, int) else None
+            if label is not None:
+                payload["label"] = label
+        if matched.unit is not None:
+            payload["unit"] = matched.unit
+        facts.append((matched.fact_type, payload))
     if (
         sum(
             1
@@ -573,12 +841,21 @@ def _normalize_value(value: object, kind: str, redactor: Redactor) -> object:
     if kind == "ipv4":
         return str(ipaddress.IPv4Address(text))
     if kind == "mac":
-        compact = "".join(
-            character for character in text.casefold() if character in "0123456789abcdef"
-        )
+        text = text.casefold().removeprefix("0x")
+        compact = "".join(character for character in text if character in "0123456789abcdef")
         if len(compact) != 12:
             raise ValueError("invalid MAC")
         return ":".join(compact[index : index + 2] for index in range(0, 12, 2))
+    if kind == "hex_bytes":
+        compact = text.casefold().removeprefix("0x")
+        compact = "".join(compact.split()).replace(":", "").replace("-", "")
+        if (
+            not compact
+            or len(compact) % 2
+            or any(character not in "0123456789abcdef" for character in compact)
+        ):
+            raise ValueError("invalid byte string")
+        return compact
     if kind == "oid":
         if not all(part.isdigit() for part in text.strip(".").split(".")):
             raise ValueError("invalid OID")

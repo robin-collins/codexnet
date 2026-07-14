@@ -228,7 +228,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** mocked v3/v2c, timeout, auth failure, unsupported OID, large table, and partial-response tests pass.
 - **Balance:** no default/guessed communities; v2c requires explicit opt-in and generates a security notice.
 
-### [ ] T402 Add infrastructure SNMP domains
+### [x] T402 Add infrastructure SNMP domains
 
 - **Depends on:** T401
 - **Deliver:** bridge MAC, ARP/neighbor, VLAN, PoE, environment, UPS, and printer consumable/page-count normalization.

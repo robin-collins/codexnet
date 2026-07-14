@@ -107,6 +107,11 @@ SNMPv3-first collection supports bounded system, interface, IPv4 address, and LL
 Legacy SNMPv2c requires an explicit insecure-protocol opt-in and produces a security notice. See
 [docs/snmp-collection.md](docs/snmp-collection.md) for credential profiles and operation.
 
+The default SNMP registry also normalizes bridge/neighbor tables, VLANs, PoE, physical sensors,
+UPS state, printer counters and consumables, plus firmware version inventory. Native units,
+unknown sentinels, source, and collection time are retained without making vulnerability claims.
+See [docs/snmp-infrastructure.md](docs/snmp-infrastructure.md).
+
 Configured UniFi OS and legacy controllers can be queried with `collect unifi`. Detection uses
 existing evidence only, controller TLS verification is strict by default, and API reads are
 bounded and allowlisted. Inventory, topology, firmware, alarms, events, stale-client state, and

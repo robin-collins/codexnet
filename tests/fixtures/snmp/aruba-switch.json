@@ -1,0 +1,12 @@
+{
+  "fixture": "synthetic Aruba-compatible switch using Q-BRIDGE-MIB",
+  "varbinds": [
+    {"oid": "1.3.6.1.2.1.17.7.1.4.3.1.1.10", "value": "Fixture-Users"},
+    {"oid": "1.3.6.1.2.1.17.7.1.4.3.1.2.10", "value": "0xC000"},
+    {"oid": "1.3.6.1.2.1.17.7.1.4.3.1.3.10", "value": "00 00"},
+    {"oid": "1.3.6.1.2.1.17.7.1.4.3.1.4.10", "value": "80:00"},
+    {"oid": "1.3.6.1.2.1.17.7.1.4.3.1.5.10", "value": "1"},
+    {"oid": "1.3.6.1.2.1.47.1.1.1.1.11.1", "value": "SYNTHETIC-SERIAL"},
+    {"oid": "1.3.6.1.2.1.47.1.1.1.1.13.1", "value": "Synthetic-Switch"}
+  ]
+}
