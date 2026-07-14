@@ -106,7 +106,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** tests cover passwords, tokens, cookies, auth headers, SNMP communities, connection URLs, encoded variants, traversal attempts, symlinks, and oversized artifacts.
 - **Balance:** run automated secret-pattern scans against test logs, database exports, and generated artifacts.
 
-### [ ] G1 Stage 1 gate
+### [x] G1 Stage 1 gate
 
 - **Depends on:** T100, T102, T103, T104, T105
 - **Verify:** all static/unit checks pass; schema integrity and backup/restore pass; redaction corpus passes; CLI operates offline and unprivileged.
