@@ -236,8 +236,8 @@ class ConfigSecretResolver:
     @staticmethod
     def _from_env_file(path: Path, key: str) -> str:
         try:
-            info = path.stat()
-            if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o077:
+            info = path.lstat()
+            if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600:
                 raise SSHCollectionError("SSH secret file must be regular and mode 0600")
             raw = path.read_bytes()
         except OSError as exc:

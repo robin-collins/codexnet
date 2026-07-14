@@ -338,6 +338,9 @@ def test_env_file_secret_resolver_requires_restricted_valid_reference(tmp_path: 
     path.chmod(0o644)
     with pytest.raises(SSHCollectionError, match="0600"):
         resolver.resolve(REFERENCE)
+    path.chmod(0o400)
+    with pytest.raises(SSHCollectionError, match="0600"):
+        resolver.resolve(REFERENCE)
     path.chmod(0o600)
     path.write_text("broken-line")
     with pytest.raises(SSHCollectionError, match="invalid line"):
@@ -351,6 +354,13 @@ def test_env_file_secret_resolver_requires_restricted_valid_reference(tmp_path: 
     path.unlink()
     with pytest.raises(SSHCollectionError, match="cannot be read"):
         resolver.resolve(REFERENCE)
+    target = tmp_path / "target.env"
+    target.write_text(f"SSH_PROFILE={profile}\n")
+    target.chmod(0o600)
+    path.symlink_to(target)
+    with pytest.raises(SSHCollectionError, match="regular"):
+        resolver.resolve(REFERENCE)
+    path.unlink()
     path.mkdir()
     path.chmod(0o600)
     with pytest.raises(SSHCollectionError, match="regular"):
