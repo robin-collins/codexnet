@@ -1,0 +1,25 @@
+{
+  "addresses": [
+    {
+      "ifname": "eth0",
+      "addr_info": [
+        {"family": "inet6", "local": "fe80::1", "prefixlen": 64, "scope": "link"},
+        {
+          "family": "inet",
+          "local": "192.168.50.25",
+          "prefixlen": 24,
+          "scope": "global",
+          "dynamic": true,
+          "valid_life_time": 81000,
+          "preferred_life_time": 81000
+        },
+        {"family": "inet", "local": "192.168.60.25", "prefixlen": 23, "scope": "global"}
+      ]
+    }
+  ],
+  "routes": [
+    {"dst": "default", "gateway": "192.168.50.254", "dev": "eth0", "protocol": "dhcp", "metric": 200},
+    {"dst": "default", "gateway": "192.168.50.1", "dev": "eth0", "protocol": "static", "metric": 100}
+  ],
+  "resolv_conf": "# synthetic fixture\nnameserver 192.168.50.1\nnameserver 1.1.1.1 # comment\nnameserver 192.168.50.1\nnameserver invalid\n"
+}

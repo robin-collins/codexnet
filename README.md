@@ -42,8 +42,18 @@ field-discovery --json --config config/example.yaml config validate
 
 Help and version output do not read configuration, require root, or contact the network. Commands
 whose implementation belongs to later tasks are visible in help and exit explicitly with status 4.
-Stable statuses are 0 (success), 2 (usage), 3 (invalid configuration), 4 (not implemented), and 70
-(unexpected internal failure).
+Stable statuses are 0 (success), 2 (usage), 3 (invalid configuration), 4 (not implemented), 5
+(subnet resolution failure), and 70 (unexpected internal failure).
+
+`discover subnet` reads the selected interface's Linux address and route state plus resolver
+configuration. It reports the normalized IPv4 CIDR, gateway, DNS servers, DHCP/kernel metadata,
+and whether that CIDR satisfies both the configured host limit and approved ranges. The command is
+descriptive only: it never transmits traffic or starts an active scan.
+
+```bash
+field-discovery --config config/example.yaml discover subnet
+field-discovery --json --config config/example.yaml discover subnet
+```
 
 ## Safety
 

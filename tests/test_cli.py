@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from field_discovery import cli
+from field_discovery.subnet import SubnetDescription, SubnetResolutionError
 
 ROOT = Path(__file__).parents[1]
 CONFIG = ROOT / "config/example.yaml"
@@ -82,7 +83,6 @@ def test_validate_json_output_and_logs_are_machine_readable(
     "arguments",
     [
         ("status",),
-        ("discover", "subnet"),
         ("collect", "passive", "status"),
         ("collect", "snmp", "--target", "192.168.50.10"),
         ("collect", "unifi", "--controller", "https://controller.invalid"),
@@ -126,6 +126,46 @@ def test_missing_configuration_is_nonzero(capsys: pytest.CaptureFixture[str]) ->
     code = cli.run(["--config", "/does/not/exist", "status"], run_id="missing-run")
     assert code == cli.ExitCode.CONFIGURATION
     assert "cannot read configuration" in capsys.readouterr().out
+
+
+def test_discover_subnet_human_and_json_output(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    description = SubnetDescription(
+        interface="eth0",
+        address="192.168.50.9",
+        cidr="192.168.50.0/24",
+        gateway="192.168.50.1",
+        dns_servers=("192.168.50.1",),
+        address_source="dhcp",
+        route_source="dhcp",
+        route_metric=100,
+        active_target_permitted=True,
+        active_target_reasons=(),
+    )
+    monkeypatch.setattr("field_discovery.cli.resolve_subnet", lambda _config: description)
+    assert invoke("discover", "subnet") == cli.ExitCode.SUCCESS
+    assert "active target permitted" in capsys.readouterr().out
+
+    assert (
+        cli.run(["--json", "--config", str(CONFIG), "discover", "subnet"], run_id="subnet-run")
+        == cli.ExitCode.SUCCESS
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["subnet"]["cidr"] == "192.168.50.0/24"
+
+
+def test_discover_subnet_failure_is_stable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail(_config: object) -> None:
+        raise SubnetResolutionError("synthetic unavailable")
+
+    monkeypatch.setattr("field_discovery.cli.resolve_subnet", fail)
+    assert invoke("discover", "subnet") == cli.ExitCode.RESOLUTION
+    captured = capsys.readouterr()
+    assert "synthetic unavailable" in captured.out
+    assert "subnet_resolution_failed" in captured.err
 
 
 def test_main_maps_interrupt_and_unexpected_failures(

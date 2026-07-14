@@ -92,7 +92,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** table-driven tests cover DHCP address reuse, hostname reuse, multiple interfaces, changing IPs, conflicting serials, and source disagreement.
 - **Balance:** hostname or IP alone must never cause an irreversible device merge; merge decisions retain evidence and can be audited.
 
-### [ ] T104 Implement interface and subnet resolution
+### [x] T104 Implement interface and subnet resolution
 
 - **Depends on:** T100
 - **Deliver:** configurable interface selection, IPv4 CIDR normalization, gateway/DNS metadata, excluded-interface rules, maximum-range safeguards, and `discover subnet` output.

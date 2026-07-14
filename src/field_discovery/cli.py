@@ -15,6 +15,7 @@ from typing import Any, NoReturn, cast
 from field_discovery import __version__
 from field_discovery.config import ConfigurationError, load_config
 from field_discovery.logging import configure_logging
+from field_discovery.subnet import SubnetResolutionError, resolve_subnet
 
 DEFAULT_CONFIG = Path("/etc/field-discovery/config.yaml")
 
@@ -27,6 +28,7 @@ class ExitCode(IntEnum):
     CONFIGURATION = 3
     NOT_IMPLEMENTED = 4
     INTERNAL = 70
+    RESOLUTION = 5
 
 
 class CliParser(argparse.ArgumentParser):
@@ -120,7 +122,7 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
     logger = configure_logging(json_mode=arguments.json_mode, run_id=actual_run_id)
     command = _command_name(arguments)
     try:
-        load_config(arguments.config)
+        configuration = load_config(arguments.config)
     except ConfigurationError as exc:
         logger.error("configuration_invalid", extra={"command": command, "reason": str(exc)})
         _emit(
@@ -132,6 +134,37 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
         logger.info("configuration_valid", extra={"command": command})
         _emit(
             {"ok": True, "command": command, "message": "Configuration is valid."},
+            json_mode=arguments.json_mode,
+        )
+        return int(ExitCode.SUCCESS)
+    if command == "discover subnet":
+        try:
+            description = resolve_subnet(configuration.data)
+        except SubnetResolutionError as exc:
+            logger.error("subnet_resolution_failed", extra={"command": command, "reason": str(exc)})
+            _emit(
+                {"ok": False, "command": command, "message": f"Subnet resolution failed: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.RESOLUTION)
+        details = description.as_dict()
+        message = (
+            f"Interface {description.interface}: {description.address} on {description.cidr}; "
+            f"gateway {description.gateway or 'none'}; DNS "
+            f"{', '.join(description.dns_servers) or 'none'}; active target "
+            f"{'permitted' if description.active_target_permitted else 'refused'}"
+        )
+        logger.info(
+            "subnet_resolved",
+            extra={
+                "command": command,
+                "interface": description.interface,
+                "cidr": description.cidr,
+                "active_target_permitted": description.active_target_permitted,
+            },
+        )
+        _emit(
+            {"ok": True, "command": command, "message": message, "subnet": details},
             json_mode=arguments.json_mode,
         )
         return int(ExitCode.SUCCESS)
