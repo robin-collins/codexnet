@@ -45,6 +45,11 @@ def test_minimal_configuration_gets_deny_by_default_values() -> None:
     assert config.data["active"]["approved_ranges"] == []
     assert not any(item["enabled"] for item in config.data["collectors"].values())
     assert config.data["collectors"]["snmp"]["protocol"] == "v3"
+    assert config.data["storage"] == {
+        "minimum_free_bytes": 536_870_912,
+        "minimum_free_percent": 10,
+    }
+    assert config.data["retention"]["backup_days"] == 30
 
 
 @pytest.mark.parametrize(
@@ -80,12 +85,17 @@ def test_root_contract_failures(document: object, message: str) -> None:
         ("scheduler.timeout_seconds", 0, "integer from 1"),
         ("scheduler.retries", 4, "integer from 0"),
         ("scheduler.concurrency", 17, "integer from 1"),
+        ("storage.minimum_free_bytes", 0, "integer from 1"),
+        ("storage.minimum_free_percent", 51, "integer from 1"),
         ("collectors.snmp.enabled", "yes", "true or false"),
         ("report.confidentiality", "", "non-empty string"),
         ("report.template", "relative.docx", "absolute path"),
         ("report.customer_name", "", "null or a non-empty string"),
         ("report.company_name", "", "must be a non-empty string"),
         ("retention.detailed_days", 0, "integer from 1"),
+        ("retention.artifact_days", 0, "integer from 1"),
+        ("retention.report_days", 366, "integer from 1"),
+        ("retention.backup_days", True, "integer from 1"),
         ("retention.diagnostic_capture_hours", 169, "integer from 1"),
     ],
 )

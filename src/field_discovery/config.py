@@ -70,6 +70,7 @@ _DEFAULTS: dict[str, Any] = {
         "retries": 1,
         "concurrency": 4,
     },
+    "storage": {"minimum_free_bytes": 536_870_912, "minimum_free_percent": 10},
     "collectors": {
         "snmp": {
             "enabled": False,
@@ -106,7 +107,13 @@ _DEFAULTS: dict[str, Any] = {
         "company_name": "CodexNet",
         "document_version": "1.0",
     },
-    "retention": {"detailed_days": 30, "diagnostic_capture_hours": 24},
+    "retention": {
+        "detailed_days": 30,
+        "artifact_days": 30,
+        "report_days": 30,
+        "backup_days": 30,
+        "diagnostic_capture_hours": 24,
+    },
 }
 
 _ALLOWED: dict[str, set[str]] = {
@@ -116,6 +123,7 @@ _ALLOWED: dict[str, set[str]] = {
         "active",
         "paths",
         "scheduler",
+        "storage",
         "collectors",
         "secret_providers",
         "report",
@@ -131,6 +139,7 @@ _ALLOWED: dict[str, set[str]] = {
         "retries",
         "concurrency",
     },
+    "storage": {"minimum_free_bytes", "minimum_free_percent"},
     "collectors": {"snmp", "unifi", "ad", "ssh"},
     "collectors.snmp": {"enabled", "protocol", "allow_insecure_v2c", "credential_ref"},
     "collectors.unifi": {"enabled", "endpoints"},
@@ -156,7 +165,13 @@ _ALLOWED: dict[str, set[str]] = {
         "company_name",
         "document_version",
     },
-    "retention": {"detailed_days", "diagnostic_capture_hours"},
+    "retention": {
+        "detailed_days",
+        "artifact_days",
+        "report_days",
+        "backup_days",
+        "diagnostic_capture_hours",
+    },
 }
 
 
@@ -330,6 +345,9 @@ def _validate_types(config: dict[str, Any]) -> None:
     _integer(scheduler["concurrency"], "scheduler.concurrency", 1, 16)
     if scheduler["jitter_seconds"] >= scheduler["interval_seconds"]:
         raise ConfigurationError("scheduler.jitter_seconds must be less than interval_seconds")
+    storage = config["storage"]
+    _integer(storage["minimum_free_bytes"], "storage.minimum_free_bytes", 1, 1 << 50)
+    _integer(storage["minimum_free_percent"], "storage.minimum_free_percent", 1, 50)
     for name, collector in config["collectors"].items():
         _boolean(collector["enabled"], f"collectors.{name}.enabled")
     report = config["report"]
@@ -348,7 +366,8 @@ def _validate_types(config: dict[str, Any]) -> None:
         if not isinstance(value, str) or not value.strip():
             raise ConfigurationError(f"report.{key} must be a non-empty string")
     retention = config["retention"]
-    _integer(retention["detailed_days"], "retention.detailed_days", 1, 365)
+    for name in ("detailed_days", "artifact_days", "report_days", "backup_days"):
+        _integer(retention[name], f"retention.{name}", 1, 365)
     _integer(retention["diagnostic_capture_hours"], "retention.diagnostic_capture_hours", 1, 168)
 
 

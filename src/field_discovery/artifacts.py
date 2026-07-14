@@ -9,6 +9,7 @@ import re
 import stat
 import unicodedata
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -90,12 +91,14 @@ class ArtifactStore:
         *,
         redactor: Redactor | None = None,
         max_bytes: int = DEFAULT_MAX_ARTIFACT_BYTES,
+        space_guard: Callable[[Path, int], object] | None = None,
     ) -> None:
         if max_bytes < 1:
             raise ValueError("max_bytes must be positive")
         self.root = root
         self.redactor = redactor or Redactor()
         self.max_bytes = max_bytes
+        self.space_guard = space_guard
         self._ensure_root()
 
     def _ensure_root(self) -> None:
@@ -196,6 +199,8 @@ class ArtifactStore:
         metadata_payload = json.dumps(
             asdict(metadata), sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
+        if self.space_guard is not None:
+            self.space_guard(self.root, len(payload) + len(metadata_payload))
         directory_fd = self._open_root()
         metadata_name = filename + _METADATA_SUFFIX
         try:

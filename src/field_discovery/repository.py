@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from field_discovery.database import migrate, open_database
+from field_discovery.database import APPLICATION_ID, available_migrations, migrate, open_database
 from field_discovery.redaction import Redactor
 
 _FINAL_RUN_STATES = frozenset({"succeeded", "partial", "failed", "cancelled"})
@@ -96,6 +96,21 @@ def _confined(root: Path, target: Path, *, allow_missing_leaf: bool) -> Path:
         if index < len(relative.parts) - 1 and not stat.S_ISDIR(info.st_mode):
             raise UnsafeRepositoryPath("repository path parent must be a directory")
     return current
+
+
+def _verify_database(connection: sqlite3.Connection) -> None:
+    """Reject corrupt, foreign, or unsupported CodexNet database snapshots."""
+    application_id = int(connection.execute("PRAGMA application_id").fetchone()[0])
+    schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    if application_id != APPLICATION_ID:
+        raise RepositoryError("database application identity is invalid")
+    if schema_version != len(available_migrations()):
+        raise RepositoryError("database schema version is unsupported")
+    integrity = tuple(str(row[0]) for row in connection.execute("PRAGMA integrity_check"))
+    if integrity != ("ok",):
+        raise RepositoryError("database integrity check failed")
+    if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise RepositoryError("database foreign key check failed")
 
 
 class Repository:
@@ -415,9 +430,7 @@ class Repository:
         target = sqlite3.connect(target_path)
         try:
             self.connection.backup(target)
-            result = target.execute("PRAGMA integrity_check").fetchone()
-            if result is None or result[0] != "ok":
-                raise RepositoryError("backup integrity check failed")
+            _verify_database(target)
             target.commit()
         except Exception:
             target.close()
@@ -425,7 +438,57 @@ class Repository:
                 target_path.unlink()
             raise
         target.close()
+        descriptor = os.open(target_path, os.O_RDONLY | _NOFOLLOW)
+        try:
+            os.fsync(descriptor)
+        except Exception:
+            with suppress(OSError):
+                target_path.unlink()
+            raise
+        finally:
+            os.close(descriptor)
         return target_path
+
+    @staticmethod
+    def restore_backup(source: Path, destination: Path, *, data_root: Path) -> Path:
+        """Verify a confined backup and restore it to a new confined database file."""
+        source_path = _confined(data_root, source, allow_missing_leaf=False)
+        destination_path = _confined(data_root, destination, allow_missing_leaf=True)
+        source_info = source_path.lstat()
+        if not stat.S_ISREG(source_info.st_mode):
+            raise UnsafeRepositoryPath("restore source must be a regular file")
+        source_connection = sqlite3.connect(f"{source_path.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            source_connection.execute("PRAGMA query_only = ON")
+            _verify_database(source_connection)
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW
+            try:
+                descriptor = os.open(destination_path, flags, 0o600)
+            except OSError as exc:
+                raise UnsafeRepositoryPath(
+                    "restore destination must be a new regular file"
+                ) from exc
+            os.close(descriptor)
+            try:
+                target = sqlite3.connect(destination_path)
+                try:
+                    source_connection.backup(target)
+                    _verify_database(target)
+                    target.commit()
+                finally:
+                    target.close()
+                descriptor = os.open(destination_path, os.O_RDONLY | _NOFOLLOW)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+            except Exception:
+                with suppress(OSError):
+                    destination_path.unlink()
+                raise
+        finally:
+            source_connection.close()
+        return destination_path
 
     def prune(self, cutoffs: RetentionCutoffs, *, dry_run: bool = True) -> PruneResult:
         """Count or delete expired rows; dry-run is the non-destructive default."""

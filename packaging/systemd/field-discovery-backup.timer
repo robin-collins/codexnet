@@ -1,0 +1,13 @@
+[Unit]
+Description=Schedule CodexNet verified SQLite backups
+Documentation=file:/opt/field-discovery/docs/storage-recovery.md
+
+[Timer]
+OnCalendar=daily
+AccuracySec=15min
+RandomizedDelaySec=1h
+Persistent=true
+Unit=field-discovery-backup.service
+
+[Install]
+WantedBy=timers.target

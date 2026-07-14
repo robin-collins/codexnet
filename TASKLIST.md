@@ -321,7 +321,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** injected failures are detected with actionable messages and stable exit codes; JSON output schema is tested.
 - **Balance:** diagnostics expose no secret values and perform no active collection unless explicitly requested.
 
-### [ ] T603 Implement disk, backup, and recovery safeguards
+### [x] T603 Implement disk, backup, and recovery safeguards
 
 - **Depends on:** T102, T602
 - **Deliver:** disk thresholds, artifact-heavy work pause, scheduled backup, restore procedure, pruning, interrupted-run recovery, and uninstall/rollback documentation.

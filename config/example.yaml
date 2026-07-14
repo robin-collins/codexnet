@@ -27,6 +27,11 @@ scheduler:
   retries: 1
   concurrency: 4
 
+storage:
+  # Pause reports, backups, and raw collector artifacts before they consume this reserve.
+  minimum_free_bytes: 536870912
+  minimum_free_percent: 10
+
 secret_providers:
   appliance_env:
     type: env_file
@@ -91,4 +96,7 @@ report:
 
 retention:
   detailed_days: 30
+  artifact_days: 30
+  report_days: 30
+  backup_days: 30
   diagnostic_capture_hours: 24

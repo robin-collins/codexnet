@@ -52,6 +52,13 @@ from field_discovery.ssh_collection import (
     NetmikoSessionFactory,
     NetworkDeviceSSHCollector,
 )
+from field_discovery.storage import (
+    BackupPruner,
+    DiskGuard,
+    LowDiskSpace,
+    UnsafeStoragePath,
+    prune_artifact_tree,
+)
 from field_discovery.subnet import SubnetResolutionError, resolve_subnet
 from field_discovery.unifi import (
     UniFiError,
@@ -78,6 +85,7 @@ class ExitCode(IntEnum):
     REPORT = 9
     COLLECTOR = 10
     DIAGNOSTIC = 11
+    STORAGE = 12
 
 
 class CliParser(argparse.ArgumentParser):
@@ -168,8 +176,18 @@ def build_parser() -> argparse.ArgumentParser:
     _command_parser(database_sub, "check", "check database integrity")
     backup = _command_parser(database_sub, "backup", "back up the database")
     backup.add_argument("--output", type=Path, help="new path inside configured data root")
+    restore = _command_parser(database_sub, "restore", "restore a verified backup to a new file")
+    restore.add_argument("backup", type=Path, help="backup inside configured data root")
+    restore.add_argument("--output", type=Path, required=True, help="new database path")
     prune = _command_parser(database_sub, "prune", "prune data according to retention policy")
     prune.add_argument("--apply", action="store_true", help="apply the default dry-run plan")
+    recover = _command_parser(database_sub, "recover", "mark boot-interrupted runs failed")
+    recover.add_argument(
+        "--confirm-stopped",
+        action="store_true",
+        required=True,
+        help="confirm every CodexNet writer is stopped",
+    )
     _command_parser(commands, "doctor", "run appliance diagnostics")
     return parser
 
@@ -696,7 +714,9 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
                 repository=ssh_repository,
                 deployment_id=deployment_id,
                 artifact_store=ArtifactStore(
-                    data_root / "artifacts" / "ssh", redactor=ssh_repository.redactor
+                    data_root / "artifacts" / "ssh",
+                    redactor=ssh_repository.redactor,
+                    space_guard=DiskGuard.from_config(configuration.data).check,
                 ),
                 session_factory=NetmikoSessionFactory(),
                 secret_resolver=ConfigSecretResolver(configuration.data["secret_providers"]),
@@ -914,6 +934,7 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
         paths = configuration.data["paths"]
         repository = None
         try:
+            DiskGuard.from_config(configuration.data).check(Path(paths["data_root"]))
             repository = Repository.open(
                 Path(paths["database"]), data_root=Path(paths["data_root"])
             )
@@ -964,6 +985,13 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
             logger.info("report_generated", extra={"command": command})
             _emit(payload, json_mode=arguments.json_mode)
             return int(ExitCode.SUCCESS)
+        except LowDiskSpace as exc:
+            logger.warning("report_generation_paused", extra={"command": command})
+            _emit(
+                {"ok": False, "command": command, "message": str(exc)},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.STORAGE)
         except (ReportError, RepositoryError, sqlite3.Error, OSError) as exc:
             logger.error("report_generation_failed", extra={"command": command, "reason": str(exc)})
             _emit(
@@ -976,10 +1004,26 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
                 repository.close()
     if arguments.group == "db":
         paths = configuration.data["paths"]
+        data_root = Path(paths["data_root"])
         try:
-            repository = Repository.open(
-                Path(paths["database"]), data_root=Path(paths["data_root"])
-            )
+            if arguments.action == "restore":
+                DiskGuard.from_config(configuration.data).check(
+                    data_root, arguments.backup.stat().st_size
+                )
+                restored = Repository.restore_backup(
+                    arguments.backup, arguments.output, data_root=data_root
+                )
+                _emit(
+                    {
+                        "ok": True,
+                        "command": command,
+                        "message": f"Verified database restored to new path: {restored}",
+                        "path": str(restored),
+                    },
+                    json_mode=arguments.json_mode,
+                )
+                return int(ExitCode.SUCCESS)
+            repository = Repository.open(Path(paths["database"]), data_root=data_root)
             try:
                 if arguments.action == "check":
                     integrity_result = repository.integrity_check()
@@ -1001,6 +1045,9 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
                     _emit(payload, json_mode=arguments.json_mode)
                     return int(ExitCode.SUCCESS if integrity_result.ok else ExitCode.DATABASE)
                 if arguments.action == "backup":
+                    DiskGuard.from_config(configuration.data).check(
+                        data_root, repository.database_path.stat().st_size
+                    )
                     destination = arguments.output or Path(paths["data_root"]) / (
                         f"discovery-backup-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.db"
                     )
@@ -1016,29 +1063,67 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
                         json_mode=arguments.json_mode,
                     )
                     return int(ExitCode.SUCCESS)
+                if arguments.action == "recover":
+                    recovered = repository.recover_interrupted_runs(datetime.now(UTC).isoformat())
+                    _emit(
+                        {
+                            "ok": True,
+                            "command": command,
+                            "message": f"Recovered {recovered} interrupted collector runs.",
+                            "recovered_runs": recovered,
+                        },
+                        json_mode=arguments.json_mode,
+                    )
+                    return int(ExitCode.SUCCESS)
                 retention_days = configuration.data["retention"]["detailed_days"]
-                cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).isoformat()
-                prune_result = repository.prune(
-                    RetentionCutoffs(cutoff, cutoff, cutoff), dry_run=not arguments.apply
+                retention = configuration.data["retention"]
+                now = datetime.now(UTC)
+                backup_pruner = BackupPruner(data_root)
+                backup_plan = backup_pruner.plan(
+                    before=now - timedelta(days=retention["backup_days"])
                 )
+                artifact_count = prune_artifact_tree(data_root / "artifacts", now=now, dry_run=True)
+                prune_result = repository.prune(
+                    RetentionCutoffs(
+                        (now - timedelta(days=retention_days)).isoformat(),
+                        (now - timedelta(days=retention["artifact_days"])).isoformat(),
+                        (now - timedelta(days=retention["report_days"])).isoformat(),
+                    ),
+                    dry_run=not arguments.apply,
+                )
+                if arguments.apply:
+                    backup_pruner.apply(backup_plan)
+                    prune_artifact_tree(data_root / "artifacts", now=now, dry_run=False)
                 mode = "preview" if prune_result.dry_run else "applied"
+                counts = {
+                    **prune_result.counts,
+                    "artifact_files": artifact_count,
+                    "backup_files": len(backup_plan),
+                }
                 logger.info("database_prune_completed", extra={"command": command, "mode": mode})
                 _emit(
                     {
                         "ok": True,
                         "command": command,
                         "message": (
-                            f"Database prune {mode}: {sum(prune_result.counts.values())} rows."
+                            f"Database prune {mode}: {sum(counts.values())} expired items."
                         ),
                         "dry_run": prune_result.dry_run,
-                        "counts": prune_result.counts,
+                        "counts": counts,
                     },
                     json_mode=arguments.json_mode,
                 )
                 return int(ExitCode.SUCCESS)
             finally:
                 repository.close()
-        except (RepositoryError, sqlite3.Error, OSError) as exc:
+        except LowDiskSpace as exc:
+            logger.warning("database_operation_paused", extra={"command": command})
+            _emit(
+                {"ok": False, "command": command, "message": str(exc)},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.STORAGE)
+        except (RepositoryError, UnsafeStoragePath, sqlite3.Error, OSError) as exc:
             logger.error(
                 "database_operation_failed", extra={"command": command, "reason": str(exc)}
             )

@@ -429,7 +429,27 @@ def collect_status(
 
     try:
         disk = dict(active.disk(Path(paths["data_root"])))
-        checks.append(_check("disk", "storage", "ok", "Disk usage is available"))
+        storage = cast(Mapping[str, object], configuration.get("storage", {}))
+        minimum_bytes = cast(int, storage.get("minimum_free_bytes", 0))
+        minimum_percent = cast(int, storage.get("minimum_free_percent", 0))
+        disk_ok = (
+            int(cast(int, disk.get("free_bytes", 0))) >= minimum_bytes
+            and float(cast(float, disk.get("free_percent", 0.0))) >= minimum_percent
+        )
+        checks.append(
+            _check(
+                "disk",
+                "storage",
+                "ok" if disk_ok else "error",
+                "Disk reserve is healthy"
+                if disk_ok
+                else "Disk reserve is below the configured threshold",
+                {
+                    "minimum_free_bytes": minimum_bytes,
+                    "minimum_free_percent": minimum_percent,
+                },
+            )
+        )
     except OSError:
         disk = {}
         checks.append(_check("disk", "storage", "error", "Disk usage is unavailable"))

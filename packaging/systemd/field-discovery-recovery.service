@@ -1,0 +1,40 @@
+[Unit]
+Description=CodexNet boot-time interrupted-run recovery
+Documentation=file:/opt/field-discovery/docs/storage-recovery.md
+Before=field-discovery-passive.service field-discovery-nmap-import.service field-discovery-backup.service
+
+[Service]
+Type=oneshot
+User=field-discovery
+Group=field-discovery
+UMask=0077
+ExecStart=/opt/field-discovery/venv/bin/field-discovery --config /etc/field-discovery/config.yaml db recover --confirm-stopped
+RemainAfterExit=true
+TimeoutStartSec=2min
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/field-discovery
+ReadWritePaths=/var/lib/field-discovery
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+MemoryMax=128M
+TasksMax=8
+
+[Install]
+WantedBy=multi-user.target

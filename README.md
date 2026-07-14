@@ -44,7 +44,7 @@ Help and version output do not read configuration, require root, or contact the 
 whose implementation belongs to later tasks are visible in help and exit explicitly with status 4.
 Stable statuses are 0 (success), 2 (usage), 3 (invalid configuration), 4 (not implemented), 5
 (subnet resolution failure), 6 (database operation failure), 7 (scan refused), 10 (collector
-failure), 11 (operational diagnostics degraded), and 70
+failure), 11 (operational diagnostics degraded), 12 (low-disk pause), and 70
 (unexpected internal failure). Status 8 reports a failed nmap import operation and status 9 a
 report generation or validation failure. An invoked scan otherwise propagates the protected
 script's status.
@@ -103,14 +103,20 @@ status. Use it only on an explicitly authorised network. The wrapper does not in
 field-discovery --config /etc/field-discovery/config.yaml scan nmap --yes
 ```
 
-Database integrity, backup, and retention operations use the configured CodexNet-owned data root.
+Database integrity, backup, restore, and retention use the configured CodexNet-owned data root.
+Artifact-heavy report, artifact, backup, and restore work pauses before crossing either configured
+disk reserve. Restore always writes a new verified file; it never overwrites the live database.
 Pruning is a dry-run unless `--apply` is explicitly supplied:
 
 ```bash
 field-discovery --config /etc/field-discovery/config.yaml db check
 field-discovery --config /etc/field-discovery/config.yaml db backup
+field-discovery --config /etc/field-discovery/config.yaml db restore /var/lib/field-discovery/discovery-backup-YYYYMMDDTHHMMSSZ.db --output /var/lib/field-discovery/restored.db
 field-discovery --config /etc/field-discovery/config.yaml db prune
 ```
+
+See [docs/storage-recovery.md](docs/storage-recovery.md) for scheduled backup, boot recovery,
+restore, rollback, and protected-state-safe removal.
 
 ## Safety
 

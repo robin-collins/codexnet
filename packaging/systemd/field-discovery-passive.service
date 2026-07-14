@@ -1,8 +1,8 @@
 [Unit]
 Description=CodexNet bounded passive network observer
 Documentation=file:/opt/field-discovery/docs/passive-service.md
-After=network-online.target
-Wants=network-online.target
+After=network-online.target field-discovery-recovery.service
+Wants=network-online.target field-discovery-recovery.service
 StartLimitIntervalSec=15min
 StartLimitBurst=5
 

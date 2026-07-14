@@ -10,12 +10,14 @@ from pathlib import Path
 
 import pytest
 
+from field_discovery.database import APPLICATION_ID
 from field_discovery.redaction import REDACTED, Redactor
 from field_discovery.repository import (
     Repository,
     RepositoryError,
     RetentionCutoffs,
     UnsafeRepositoryPath,
+    _verify_database,
     export_digest,
 )
 
@@ -188,6 +190,15 @@ def test_integrity_and_consistent_backup_restore(repository: Repository) -> None
     assert restored.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert restored.execute("SELECT id FROM deployments").fetchone()[0] == deployment_id
     restored.close()
+    restored_path = repository.data_root / "restored.db"
+    assert (
+        Repository.restore_backup(backup_path, restored_path, data_root=repository.data_root)
+        == restored_path
+    )
+    assert stat.S_IMODE(restored_path.stat().st_mode) == 0o600
+    restored = sqlite3.connect(restored_path)
+    assert restored.execute("SELECT id FROM deployments").fetchone()[0] == deployment_id
+    restored.close()
     with pytest.raises(UnsafeRepositoryPath, match="new regular file"):
         repository.backup(backup_path)
 
@@ -235,22 +246,12 @@ def test_backup_and_open_refuse_escape_relative_and_symlink_paths(
         repository.backup(blocked / "backup.db")
 
 
-@pytest.mark.parametrize("integrity_row", [None, ("not ok",)])
-def test_failed_backup_is_removed(
-    repository: Repository, monkeypatch: pytest.MonkeyPatch, integrity_row: tuple[str] | None
-) -> None:
+def test_failed_backup_is_removed(repository: Repository, monkeypatch: pytest.MonkeyPatch) -> None:
     class Source:
         def backup(self, _target: object) -> None:
             pass
 
     class Target:
-        def execute(self, _statement: str) -> object:
-            class Result:
-                def fetchone(self) -> tuple[str] | None:
-                    return integrity_row
-
-            return Result()
-
         def commit(self) -> None:
             pass
 
@@ -260,11 +261,118 @@ def test_failed_backup_is_removed(
     original = repository.connection
     repository.connection = Source()  # type: ignore[assignment]
     monkeypatch.setattr("field_discovery.repository.sqlite3.connect", lambda _path: Target())
-    target = repository.data_root / f"failed-{integrity_row}.db"
+    monkeypatch.setattr(
+        "field_discovery.repository._verify_database",
+        lambda _target: (_ for _ in ()).throw(RepositoryError("backup integrity check failed")),
+    )
+    target = repository.data_root / "failed-verification.db"
     with pytest.raises(RepositoryError, match="integrity check failed"):
         repository.backup(target)
     assert not target.exists()
     repository.connection = original
+
+
+def test_restore_rejects_unsafe_corrupt_foreign_and_future_inputs(
+    repository: Repository, tmp_path: Path
+) -> None:
+    root = repository.data_root
+    destination = root / "restored.db"
+    outside = tmp_path / "outside.db"
+    outside.write_text("fixture")
+    with pytest.raises(UnsafeRepositoryPath, match="outside"):
+        Repository.restore_backup(outside, destination, data_root=root)
+    directory = root / "directory-source"
+    directory.mkdir()
+    with pytest.raises(UnsafeRepositoryPath, match="regular file"):
+        Repository.restore_backup(directory, destination, data_root=root)
+
+    corrupt = root / "corrupt.db"
+    corrupt.write_text("not sqlite")
+    with pytest.raises((RepositoryError, sqlite3.DatabaseError)):
+        Repository.restore_backup(corrupt, destination, data_root=root)
+    assert not destination.exists()
+
+    foreign = root / "foreign.db"
+    connection = sqlite3.connect(foreign)
+    connection.execute("PRAGMA application_id = 1")
+    connection.close()
+    with pytest.raises(RepositoryError, match="identity"):
+        Repository.restore_backup(foreign, destination, data_root=root)
+
+    future = root / "future.db"
+    connection = sqlite3.connect(future)
+    connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
+    connection.execute("PRAGMA user_version = 999")
+    connection.close()
+    with pytest.raises(RepositoryError, match="schema"):
+        Repository.restore_backup(future, destination, data_root=root)
+
+    backup = repository.backup(root / "valid.db")
+    linked = root / "linked.db"
+    linked.symlink_to(backup)
+    with pytest.raises(UnsafeRepositoryPath, match="symlinks"):
+        Repository.restore_backup(linked, destination, data_root=root)
+    destination.write_text("existing")
+    with pytest.raises(UnsafeRepositoryPath, match="new regular"):
+        Repository.restore_backup(backup, destination, data_root=root)
+
+
+def test_restore_cleanup_on_final_sync_failure(
+    repository: Repository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backup = repository.backup(repository.data_root / "valid.db")
+    destination = repository.data_root / "interrupted.db"
+    monkeypatch.setattr(
+        "field_discovery.repository.os.fsync",
+        lambda _descriptor: (_ for _ in ()).throw(OSError("synthetic sync failure")),
+    )
+    with pytest.raises(OSError, match="sync failure"):
+        Repository.restore_backup(backup, destination, data_root=repository.data_root)
+    assert not destination.exists()
+
+
+def test_backup_cleanup_on_final_sync_failure(
+    repository: Repository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = repository.data_root / "sync-failed.db"
+    monkeypatch.setattr(
+        "field_discovery.repository.os.fsync",
+        lambda _descriptor: (_ for _ in ()).throw(OSError("synthetic sync failure")),
+    )
+    with pytest.raises(OSError, match="sync failure"):
+        repository.backup(destination)
+    assert not destination.exists()
+
+
+def test_database_verifier_rejects_integrity_and_foreign_key_failures() -> None:
+    class Rows:
+        def __init__(self, values: list[tuple[object, ...]]) -> None:
+            self.values = values
+
+        def fetchone(self) -> tuple[object, ...] | None:
+            return self.values[0] if self.values else None
+
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            return iter(self.values)
+
+    class Connection:
+        def __init__(self, *, integrity: str = "ok", foreign_key: bool = False) -> None:
+            self.integrity = integrity
+            self.foreign_key = foreign_key
+
+        def execute(self, statement: str) -> Rows:
+            if statement == "PRAGMA application_id":
+                return Rows([(APPLICATION_ID,)])
+            if statement == "PRAGMA user_version":
+                return Rows([(4,)])
+            if statement == "PRAGMA integrity_check":
+                return Rows([(self.integrity,)])
+            return Rows([("violation",)] if self.foreign_key else [])
+
+    with pytest.raises(RepositoryError, match="integrity"):
+        _verify_database(Connection(integrity="damaged"))  # type: ignore[arg-type]
+    with pytest.raises(RepositoryError, match="foreign key"):
+        _verify_database(Connection(foreign_key=True))  # type: ignore[arg-type]
 
 
 def test_backup_exception_is_removed(repository: Repository) -> None:

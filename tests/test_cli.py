@@ -1095,6 +1095,53 @@ def test_database_cli_check_backup_and_prune(
     assert json.loads(capsys.readouterr().out)["dry_run"] is False
 
 
+def test_database_cli_restore_recover_and_low_disk_pause(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config, root = database_config(tmp_path)
+    repository = Repository.open(root / "discovery.db", data_root=root)
+    run_id = repository.start_run(None, "fixture", "2026-01-01T00:00:00+00:00")
+    backup = repository.backup(root / "source.db")
+    repository.close()
+    prefix = ["--json", "--config", str(config), "db"]
+    restored = root / "restored.db"
+    assert (
+        cli.run(
+            [*prefix, "restore", str(backup), "--output", str(restored)],
+            run_id="db-restore",
+        )
+        == cli.ExitCode.SUCCESS
+    )
+    assert json.loads(capsys.readouterr().out)["path"] == str(restored)
+    assert (
+        cli.run([*prefix, "recover", "--confirm-stopped"], run_id="db-recover")
+        == cli.ExitCode.SUCCESS
+    )
+    assert json.loads(capsys.readouterr().out)["recovered_runs"] == 1
+    repository = Repository.open(root / "discovery.db", data_root=root)
+    assert repository.recent_collector_runs()[0]["id"] == run_id
+    assert repository.recent_collector_runs()[0]["status"] == "failed"
+    repository.close()
+
+    class PausedGuard:
+        def check(self, _path: Path, _required: int = 0) -> None:
+            raise cli.LowDiskSpace("artifact-heavy work paused")
+
+    monkeypatch.setattr(cli.DiskGuard, "from_config", lambda _configuration: PausedGuard())
+    assert cli.run([*prefix, "backup"], run_id="db-low-disk") == cli.ExitCode.STORAGE
+    assert "paused" in json.loads(capsys.readouterr().out)["message"]
+    assert (
+        cli.run(
+            ["--json", "--config", str(config), "report", "generate"],
+            run_id="report-low-disk",
+        )
+        == cli.ExitCode.STORAGE
+    )
+    assert "paused" in json.loads(capsys.readouterr().out)["message"]
+
+
 def test_database_cli_failed_integrity_and_operation_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

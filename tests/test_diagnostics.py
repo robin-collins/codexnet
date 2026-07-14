@@ -34,6 +34,7 @@ def configuration(tmp_path: Path) -> dict[str, Any]:
     return {
         "interface": {"name": "eth0", "allow_excluded_interface": False},
         "active": {"approved_ranges": ["192.0.2.0/24"], "max_hosts": 256},
+        "storage": {"minimum_free_bytes": 100, "minimum_free_percent": 10},
         "paths": {
             "data_root": str(tmp_path / "data"),
             "database": str(tmp_path / "data" / "discovery.db"),
@@ -227,6 +228,16 @@ def test_status_detects_wrong_database_identity_schema_integrity_and_foreign_key
             if item["name"] == "database"  # type: ignore[union-attr]
         )
         assert database_check["status"] == "error"
+
+    probe = FakeProbe(tmp_path)
+    probe.disk_value = {"free_bytes": 99, "free_percent": 9.9}
+    report = collect_status(configuration(tmp_path), probe=probe)
+    disk_check = next(item for item in report["checks"] if item["name"] == "disk")  # type: ignore[union-attr]
+    assert disk_check["status"] == "error"
+    assert disk_check["details"] == {
+        "minimum_free_bytes": 100,
+        "minimum_free_percent": 10,
+    }
 
 
 def test_doctor_classifies_dependencies_services_clock_and_protected_checks(

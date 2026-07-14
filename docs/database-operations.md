@@ -9,16 +9,20 @@ source- and time-stamped `interrupted` error, so incomplete work cannot appear s
 The configured database must be beneath `paths.data_root`. Runtime checks refuse relative paths,
 parent traversal, missing parent directories, symlinked roots/components, existing backup/export
 destinations, and paths outside that root. Backups use SQLite's online backup API, mode `0600`, and
-an integrity check before success. Sanitized JSON export is deterministic, mode `0600`, atomically
+identity, schema, integrity, and foreign-key checks. Sanitized JSON export is deterministic, mode `0600`, atomically
 published, and applies centralized structural and known-value redaction to every row.
 
 `db check` runs SQLite integrity and foreign-key checks. `db backup` creates a new timestamped file
-inside the data root unless `--output` names another new confined path. `db prune` is a dry-run by
-default; `db prune --apply` is the explicit destructive form.
+inside the data root unless `--output` names another new confined path. `db restore BACKUP --output
+NEW_DATABASE` verifies the source and restores to a new confined path without replacing the live
+database. `db prune` is a dry-run by default; `db prune --apply` is the explicit destructive form.
 
 Retention has independent detailed-observation, artifact-metadata, and report-history cutoffs.
 Detailed pruning covers generic facts, collector errors, software/infrastructure history, and
 topology history while preserving stable canonical deployments/devices and address first/last-seen
 records. Artifact pruning removes CodexNet database metadata only: it never deletes or changes the
-protected external nmap result tree. CodexNet-owned artifact file expiry is handled separately by
-the link-safe artifact store.
+protected external nmap result tree. The CLI plan also covers link-safe artifact expiry and exact
+scheduler-named backups with preview/apply parity.
+
+See [storage-recovery.md](storage-recovery.md) for disk reserves, scheduling, restore switching,
+rollback, reboot recovery, and uninstall.

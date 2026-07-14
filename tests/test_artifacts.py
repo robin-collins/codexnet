@@ -161,6 +161,22 @@ def test_existing_artifact_is_never_replaced(tmp_path: Path) -> None:
     assert (store.root / "once.txt").read_text() == "first"
 
 
+def test_low_disk_guard_runs_before_artifact_publication(tmp_path: Path) -> None:
+    calls: list[tuple[Path, int]] = []
+
+    def pause(path: Path, size: int) -> None:
+        calls.append((path, size))
+        raise RuntimeError("low disk")
+
+    root = tmp_path / "guarded"
+    root.mkdir(mode=0o700)
+    store = ArtifactStore(root, space_guard=pause)
+    with pytest.raises(RuntimeError, match="low disk"):
+        store.write_text("paused.txt", "fixture", category="test", retention=timedelta(days=1))
+    assert calls and calls[0][0] == root and calls[0][1] > len("fixture")
+    assert list(root.iterdir()) == []
+
+
 def test_retention_hook_defaults_to_dry_run_and_refuses_symlinks(tmp_path: Path) -> None:
     store = _store(tmp_path)
     now = datetime(2026, 7, 15, tzinfo=UTC)
