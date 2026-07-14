@@ -1,15 +1,19 @@
 # Dependency policy
 
-CodexNet targets CPython 3.11 through 3.13 on Debian Linux ARM64. PyYAML is the sole runtime
-dependency at T003 and is used only through `safe_load` for the operator configuration. Its
-pinned release supports these Python versions and has Linux AArch64 wheels as well as a pure
-Python fallback; CodexNet does not require an unreviewed native extension to load configuration.
+CodexNet targets CPython 3.11 through 3.13 on Debian Linux ARM64. PyYAML is used only through
+`safe_load` for operator configuration. Its pinned release supports these Python versions and has
+Linux AArch64 wheels as well as a pure Python fallback.
 
 T401 adds PySNMP 7.1.27 and its PyASN1 0.6.4 dependency for asynchronous SNMPv3 and explicitly
 enabled SNMPv2c transport. Both are pinned, pure-Python `py3-none-any` wheels compatible with the
 supported CPython and Debian ARM64 targets. Cryptography 49.0.0 is pinned for SNMPv3 AES privacy and
 publishes CPython manylinux ARM64 wheels; installation must use a wheel rather than compiling Rust
 on the appliance. CodexNet uses numeric OIDs and does not add dynamic MIB compilers.
+
+T502 adds dnspython 2.8.0 for bounded SRV/A resolution and stable ldap3 2.9.1 for anonymous,
+base-scope RootDSE reads. Both publish platform-independent `py3-none-any` wheels and require no
+native compilation on Debian ARM64. ldap3 reuses the already pinned PyASN1 dependency. Detection
+constructs no authenticated LDAP connection; credential-gated collection belongs to T503.
 
 Build and quality tools are exact-version constrained in `requirements-dev.lock`. The selected
 Ruff, mypy, pytest, pytest-cov, coverage, and setuptools releases publish platform-independent

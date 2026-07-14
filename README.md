@@ -125,3 +125,14 @@ field-discovery --config /etc/field-discovery/config.yaml collect ssh \
 
 Every device command is checked against an exact platform allowlist, and bounded raw output is
 redacted before retention. See [docs/ssh-collection.md](docs/ssh-collection.md).
+
+Credential-free AD detection uses explicitly approved DNS domains, bounded AD SRV/A lookups,
+existing service observations, and anonymous RootDSE base queries only to resolved IPv4 addresses
+inside `active.approved_ranges`. It does not read or resolve any configured credential reference:
+
+```bash
+field-discovery --config /etc/field-discovery/config.yaml discover ad \
+  --domain example.invalid --site Site-A
+```
+
+See [docs/ad-detection.md](docs/ad-detection.md) for the evidence and safety model.

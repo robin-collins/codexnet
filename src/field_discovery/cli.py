@@ -18,6 +18,14 @@ from typing import Any, NoReturn, cast
 from urllib.parse import urlsplit
 
 from field_discovery import __version__
+from field_discovery.ad_detection import (
+    ADDetectionError,
+    ADDetector,
+    DnspythonResolver,
+    Ldap3RootDSEProbe,
+    persist_detection,
+    repository_service_evidence,
+)
 from field_discovery.artifacts import ArtifactStore
 from field_discovery.collectors import (
     CollectorContext,
@@ -93,6 +101,9 @@ def build_parser() -> argparse.ArgumentParser:
     discover = _command_parser(commands, "discover", "safe discovery operations")
     discover_sub = discover.add_subparsers(dest="action", required=True)
     _command_parser(discover_sub, "subnet", "resolve the selected interface and subnet")
+    ad_discovery = _command_parser(discover_sub, "ad", "detect AD without credentials")
+    ad_discovery.add_argument("--domain", action="append", help="explicit approved DNS domain")
+    ad_discovery.add_argument("--site", action="append", help="optional AD site SRV scope")
 
     collect = _command_parser(commands, "collect", "collector operations")
     collect_sub = collect.add_subparsers(dest="action", required=True)
@@ -257,6 +268,102 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
             json_mode=arguments.json_mode,
         )
         return int(ExitCode.SUCCESS)
+    if command == "discover ad":
+        configured_domain = configuration.data["collectors"]["ad"]["domain"]
+        domains = arguments.domain or ([configured_domain] if configured_domain else [])
+        if not domains:
+            _emit(
+                {
+                    "ok": False,
+                    "command": command,
+                    "message": "AD detection requires an explicitly configured or supplied domain.",
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.CONFIGURATION)
+        paths = configuration.data["paths"]
+        ad_repository: Repository | None = None
+        ad_run: int | None = None
+        try:
+            ad_repository = Repository.open(
+                Path(paths["database"]), data_root=Path(paths["data_root"])
+            )
+            timestamp = datetime.now(UTC)
+            deployment_id = ad_repository.upsert_deployment(
+                "default", "Default deployment", timestamp.isoformat()
+            )
+            ad_run = ad_repository.start_run(
+                deployment_id,
+                "ad_detection",
+                timestamp.isoformat(),
+                interface_name=configuration.data["interface"]["name"],
+                target_cidr=",".join(domains),
+            )
+            scheduler = configuration.data["scheduler"]
+            detector = ADDetector(
+                DnspythonResolver(scheduler["timeout_seconds"]),
+                Ldap3RootDSEProbe(scheduler["timeout_seconds"]),
+                configuration.data["active"]["approved_ranges"],
+                concurrency=scheduler["concurrency"],
+            )
+            evidence = repository_service_evidence(ad_repository, deployment_id, domains)
+            ad_result = asyncio.run(
+                detector.detect(domains, sites=arguments.site or (), service_evidence=evidence)
+            )
+            persist_detection(ad_repository, deployment_id, ad_result, observed_at=timestamp)
+            for ad_issue in ad_result.issues:
+                ad_repository.record_collector_error(
+                    ad_run,
+                    category=ad_issue.category,
+                    detail=f"{ad_issue.subject}: {ad_issue.detail}",
+                    retryable=ad_issue.category.endswith("unreachable"),
+                    source="ad_detection",
+                    observed_at=timestamp.isoformat(),
+                )
+            status = "partial" if ad_result.issues else "succeeded"
+            ad_repository.finish_run(
+                ad_run, status, datetime.now(UTC).isoformat(), len(ad_result.candidates)
+            )
+            candidates = [
+                {
+                    "domain": item.domain,
+                    "hostname": item.hostname,
+                    "addresses": list(item.addresses),
+                    "ports": list(item.ports),
+                    "sites": list(item.sites),
+                    "sources": list(item.sources),
+                    "confidence": item.confidence,
+                }
+                for item in ad_result.candidates
+            ]
+            _emit(
+                {
+                    "ok": True,
+                    "command": command,
+                    "message": (
+                        f"AD detection: {len(candidates)} candidates, "
+                        f"{len(ad_result.issues)} limitations."
+                    ),
+                    "domains": list(ad_result.domains),
+                    "candidates": candidates,
+                    "limitations": len(ad_result.issues),
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.SUCCESS)
+        except (ADDetectionError, RepositoryError, sqlite3.Error, OSError) as exc:
+            if ad_repository is not None and ad_run is not None:
+                with suppress(RepositoryError, sqlite3.Error):
+                    ad_repository.finish_run(ad_run, "failed", datetime.now(UTC).isoformat(), 0)
+            logger.error("ad_detection_failed", extra={"command": command, "reason": str(exc)})
+            _emit(
+                {"ok": False, "command": command, "message": f"AD detection failed: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.COLLECTOR)
+        finally:
+            if ad_repository is not None:
+                ad_repository.close()
     if command == "collect snmp":
         paths = configuration.data["paths"]
         settings = configuration.data["collectors"]["snmp"]
@@ -559,16 +666,16 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
                 stability_seconds=arguments.stability_seconds,
                 now=timestamp,
             )
-            for issue in summary.issues:
+            for nmap_issue in summary.issues:
                 repository.connection.execute(
                     "INSERT INTO collector_errors"
                     "(collector_run_id, category, detail, retryable, source, observed_at) "
                     "VALUES (?, ?, ?, ?, 'nmap_import', ?)",
                     (
                         run_record,
-                        issue.category,
-                        repository.redactor.text(issue.detail),
-                        int(issue.retryable),
+                        nmap_issue.category,
+                        repository.redactor.text(nmap_issue.detail),
+                        int(nmap_issue.retryable),
                         timestamp.isoformat(),
                     ),
                 )

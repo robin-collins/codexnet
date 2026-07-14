@@ -14,6 +14,12 @@ import pytest
 import yaml
 
 from field_discovery import cli
+from field_discovery.ad_detection import (
+    ADDetectionError,
+    ADDetectionResult,
+    DetectionIssue,
+    DomainControllerCandidate,
+)
 from field_discovery.collectors import CollectorResult
 from field_discovery.repository import IntegrityResult, Repository, RepositoryError
 from field_discovery.subnet import SubnetDescription, SubnetResolutionError
@@ -625,6 +631,119 @@ def test_discover_subnet_failure_is_stable(
     captured = capsys.readouterr()
     assert "synthetic unavailable" in captured.out
     assert "subnet_resolution_failed" in captured.err
+
+
+def test_discover_ad_cli_uses_no_credentials_and_persists_candidates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, root = database_config(tmp_path)
+    candidate = DomainControllerCandidate(
+        "alpha.example.invalid",
+        "dc1.alpha.example.invalid",
+        ("192.168.50.10",),
+        (389,),
+        ("Site-A",),
+        ("dns_ldap_srv",),
+        {},
+        0.8,
+    )
+    calls: list[tuple[object, object, object]] = []
+
+    class FakeDetector:
+        async def detect(
+            self, domains: object, *, sites: object, service_evidence: object
+        ) -> ADDetectionResult:
+            calls.append((domains, sites, service_evidence))
+            return ADDetectionResult(("alpha.example.invalid",), (candidate,), ())
+
+    monkeypatch.setattr(cli, "ADDetector", lambda *_args, **_kwargs: FakeDetector())
+    monkeypatch.setattr(cli, "DnspythonResolver", lambda *_args: object())
+    monkeypatch.setattr(cli, "Ldap3RootDSEProbe", lambda *_args: object())
+    monkeypatch.setattr(cli, "repository_service_evidence", lambda *_args: ("stored",))
+    code = cli.run(
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "discover",
+            "ad",
+            "--domain",
+            "alpha.example.invalid",
+            "--site",
+            "Site-A",
+        ],
+        run_id="ad-detect",
+    )
+    assert code == cli.ExitCode.SUCCESS
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["candidates"][0]["hostname"] == "dc1.alpha.example.invalid"
+    assert payload["limitations"] == 0
+    assert calls == [(["alpha.example.invalid"], ["Site-A"], ("stored",))]
+    connection = sqlite3.connect(root / "discovery.db")
+    assert connection.execute("SELECT status FROM collector_runs").fetchone()[0] == "succeeded"
+    assert connection.execute("SELECT count(*) FROM observations").fetchone()[0] == 1
+    connection.close()
+
+
+def test_discover_ad_cli_records_partial_limitations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, root = database_config(tmp_path)
+
+    class FakeDetector:
+        async def detect(self, *_args: object, **_kwargs: object) -> ADDetectionResult:
+            return ADDetectionResult(
+                ("example.invalid",),
+                (),
+                (DetectionIssue("dns_unreachable", "owner", "DNS query was unreachable"),),
+            )
+
+    monkeypatch.setattr(cli, "ADDetector", lambda *_args, **_kwargs: FakeDetector())
+    monkeypatch.setattr(cli, "repository_service_evidence", lambda *_args: ())
+    assert (
+        cli.run(["--config", str(config_path), "discover", "ad"], run_id="ad-partial")
+        == cli.ExitCode.SUCCESS
+    )
+    assert "1 limitations" in capsys.readouterr().out
+    connection = sqlite3.connect(root / "discovery.db")
+    assert connection.execute("SELECT status FROM collector_runs").fetchone()[0] == "partial"
+    assert connection.execute("SELECT retryable FROM collector_errors").fetchone()[0] == 1
+    connection.close()
+
+
+def test_discover_ad_cli_missing_domain_and_safe_failure_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, root = database_config(tmp_path)
+    document = yaml.safe_load(config_path.read_text())
+    document["collectors"]["ad"]["domain"] = None
+    config_path.write_text(yaml.safe_dump(document))
+    arguments = ["--config", str(config_path), "discover", "ad"]
+    assert cli.run(arguments, run_id="ad-no-domain") == cli.ExitCode.CONFIGURATION
+    assert "requires" in capsys.readouterr().out
+
+    document["collectors"]["ad"]["domain"] = "example.invalid"
+    config_path.write_text(yaml.safe_dump(document))
+
+    class FailingDetector:
+        async def detect(self, *_args: object, **_kwargs: object) -> object:
+            raise ADDetectionError("synthetic safe refusal")
+
+    monkeypatch.setattr(cli, "ADDetector", lambda *_args, **_kwargs: FailingDetector())
+    monkeypatch.setattr(cli, "repository_service_evidence", lambda *_args: ())
+    assert cli.run(arguments, run_id="ad-fail") == cli.ExitCode.COLLECTOR
+    captured = capsys.readouterr()
+    assert "synthetic safe refusal" in captured.out
+    assert "ad_detection_failed" in captured.err
+    connection = sqlite3.connect(root / "discovery.db")
+    assert connection.execute("SELECT status FROM collector_runs").fetchone()[0] == "failed"
+    connection.close()
+
+    monkeypatch.setattr(
+        cli.Repository, "open", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline"))
+    )
+    assert cli.run(arguments, run_id="ad-offline") == cli.ExitCode.COLLECTOR
+    assert "offline" in capsys.readouterr().out
 
 
 def test_nmap_import_cli_reports_idempotent_summary(

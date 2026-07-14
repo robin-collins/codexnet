@@ -271,7 +271,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** controller IDs correlate without duplicate devices; disconnected/stale clients and cross-site IDs are handled correctly.
 - **Balance:** collection permissions and omitted endpoints are reported as coverage limitations.
 
-### [ ] T502 Implement safe AD detection
+### [x] T502 Implement safe AD detection
 
 - **Depends on:** T104, T400
 - **Deliver:** DNS SRV, existing service evidence, and RootDSE detection limited to approved domain/targets; no credential use during detection.

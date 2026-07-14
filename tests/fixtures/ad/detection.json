@@ -1,0 +1,42 @@
+{
+  "domains": ["alpha.example.invalid", "beta.example.invalid"],
+  "sites": ["Site-A"],
+  "srv": {
+    "_ldap._tcp.dc._msdcs.alpha.example.invalid": [
+      {"priority": 0, "weight": 100, "port": 389, "target": "dc1.alpha.example.invalid."},
+      {"priority": 10, "weight": 50, "port": 389, "target": "dc2.alpha.example.invalid."}
+    ],
+    "_kerberos._tcp.alpha.example.invalid": [
+      {"priority": 0, "weight": 100, "port": 88, "target": "dc1.alpha.example.invalid."}
+    ],
+    "_ldap._tcp.Site-A._sites.dc._msdcs.alpha.example.invalid": [
+      {"priority": 0, "weight": 100, "port": 389, "target": "dc1.alpha.example.invalid."}
+    ],
+    "_ldap._tcp.dc._msdcs.beta.example.invalid": [
+      {"priority": 0, "weight": 100, "port": 389, "target": "dc1.beta.example.invalid."}
+    ]
+  },
+  "addresses": {
+    "dc1.alpha.example.invalid": ["192.168.50.10"],
+    "dc2.alpha.example.invalid": ["192.168.50.11"],
+    "dc1.beta.example.invalid": ["192.168.50.20"]
+  },
+  "rootdse": {
+    "192.168.50.10": {
+      "defaultNamingContext": ["DC=alpha,DC=example,DC=invalid"],
+      "rootDomainNamingContext": ["DC=alpha,DC=example,DC=invalid"],
+      "dnsHostName": ["dc1.alpha.example.invalid"],
+      "supportedCapabilities": ["1.2.840.113556.1.4.800"]
+    },
+    "192.168.50.11": {
+      "defaultNamingContext": ["DC=alpha,DC=example,DC=invalid"],
+      "dnsHostName": ["dc2.alpha.example.invalid"],
+      "supportedCapabilities": ["1.2.840.113556.1.4.800"]
+    },
+    "192.168.50.20": {
+      "defaultNamingContext": ["DC=beta,DC=example,DC=invalid"],
+      "dnsHostName": ["dc1.beta.example.invalid"],
+      "supportedCapabilities": ["1.2.840.113556.1.4.1670"]
+    }
+  }
+}
