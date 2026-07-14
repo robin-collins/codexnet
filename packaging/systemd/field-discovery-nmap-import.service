@@ -1,0 +1,42 @@
+[Unit]
+Description=CodexNet completed nmap artifact import
+Documentation=file:/opt/field-discovery/docs/nmap-monitoring.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=15min
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+User=field-discovery
+Group=field-discovery
+UMask=0077
+ExecStart=/opt/field-discovery/venv/bin/field-discovery --config /etc/field-discovery/config.yaml import nmap --stability-seconds 30
+TimeoutStartSec=5min
+Nice=10
+CPUWeight=20
+IOWeight=20
+
+# The existing nmap result tree is input only. CodexNet owns only its data root.
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/var/log/network-discovery /etc/field-discovery
+ReadWritePaths=/var/lib/field-discovery
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native

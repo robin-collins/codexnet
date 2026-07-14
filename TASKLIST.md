@@ -142,7 +142,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** DOCX ZIP structure validates, opens in LibreOffice headless validation where available, contains no external relationships, and matches snapshot/semantic tests.
 - **Balance:** secret-pattern scan passes for DOCX XML, JSON, filenames, properties, and embedded metadata.
 
-### [ ] T204 Add nmap import monitoring
+### [x] T204 Add nmap import monitoring
 
 - **Depends on:** T201
 - **Deliver:** non-conflicting path/timer mechanism that imports completed artifacts and optionally refreshes reports without launching nmap.

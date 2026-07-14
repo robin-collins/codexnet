@@ -1,0 +1,14 @@
+[Unit]
+Description=Poll safely for completed nmap artifacts
+Documentation=file:/opt/field-discovery/docs/nmap-monitoring.md
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+AccuracySec=30s
+RandomizedDelaySec=30s
+Persistent=true
+Unit=field-discovery-nmap-import.service
+
+[Install]
+WantedBy=timers.target
