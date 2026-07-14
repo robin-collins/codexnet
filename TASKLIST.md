@@ -157,7 +157,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 
 ## Stage 3 — Passive discovery and topology
 
-### [ ] T300 Implement passive-event ingestion framework
+### [x] T300 Implement passive-event ingestion framework
 
 - **Depends on:** G2
 - **Deliver:** bounded asynchronous event pipeline, parser isolation, timestamps, deduplication, backpressure, metrics, and graceful shutdown.
