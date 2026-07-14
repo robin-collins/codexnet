@@ -10,6 +10,8 @@ active:
   approved_ranges:
     - 192.168.50.0/24
   max_hosts: 256
+  # Outer wall-clock bound for an explicit invocation of the existing script.
+  scan_timeout_seconds: 7200
 
 paths:
   # Read-only input owned by the existing protected nmap process.

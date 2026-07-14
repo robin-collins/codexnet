@@ -71,6 +71,7 @@ def test_root_contract_failures(document: object, message: str) -> None:
         ("interface.name", "lo", "excluded by default"),
         ("active.approved_ranges", "192.168.1.0/24", "must be a list"),
         ("active.max_hosts", True, "integer from 1 to 1024"),
+        ("active.scan_timeout_seconds", 0, "integer from 1 to 86400"),
         ("paths.nmap_results", "relative", "absolute path"),
         ("paths.data_root", "relative", "absolute path"),
         ("paths.database", "relative", "absolute path"),

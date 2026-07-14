@@ -43,7 +43,8 @@ field-discovery --json --config config/example.yaml config validate
 Help and version output do not read configuration, require root, or contact the network. Commands
 whose implementation belongs to later tasks are visible in help and exit explicitly with status 4.
 Stable statuses are 0 (success), 2 (usage), 3 (invalid configuration), 4 (not implemented), 5
-(subnet resolution failure), 6 (database operation failure), and 70 (unexpected internal failure).
+(subnet resolution failure), 6 (database operation failure), 7 (scan refused), and 70
+(unexpected internal failure). An invoked scan otherwise propagates the protected script's status.
 
 `discover subnet` reads the selected interface's Linux address and route state plus resolver
 configuration. It reports the normalized IPv4 CIDR, gateway, DNS servers, DHCP/kernel metadata,
@@ -53,6 +54,15 @@ descriptive only: it never transmits traffic or starts an active scan.
 ```bash
 field-discovery --config config/example.yaml discover subnet
 field-discovery --json --config config/example.yaml discover subnet
+```
+
+`scan nmap` is never scheduled by CodexNet. It resolves and verifies the configured
+interface/CIDR, requires interactive confirmation or `--yes`, holds a concurrent-run lock,
+sets an outer timeout, records the run in SQLite, and propagates the protected script's exit
+status. Use it only on an explicitly authorised network. The wrapper does not invoke `sudo`.
+
+```bash
+field-discovery --config /etc/field-discovery/config.yaml scan nmap --yes
 ```
 
 Database integrity, backup, and retention operations use the configured CodexNet-owned data root.

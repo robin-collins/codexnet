@@ -56,7 +56,7 @@ class Configuration:
 
 _DEFAULTS: dict[str, Any] = {
     "interface": {"name": "eth0", "allow_excluded_interface": False},
-    "active": {"approved_ranges": [], "max_hosts": 256},
+    "active": {"approved_ranges": [], "max_hosts": 256, "scan_timeout_seconds": 7200},
     "paths": {
         "nmap_results": "/var/log/network-discovery",
         "data_root": "/var/lib/field-discovery",
@@ -109,7 +109,7 @@ _ALLOWED: dict[str, set[str]] = {
         "retention",
     },
     "interface": {"name", "allow_excluded_interface"},
-    "active": {"approved_ranges", "max_hosts"},
+    "active": {"approved_ranges", "max_hosts", "scan_timeout_seconds"},
     "paths": {"nmap_results", "data_root", "database"},
     "scheduler": {
         "interval_seconds",
@@ -281,6 +281,7 @@ def _validate_types(config: dict[str, Any]) -> None:
     if not isinstance(active["approved_ranges"], list):
         raise ConfigurationError("active.approved_ranges must be a list")
     _integer(active["max_hosts"], "active.max_hosts", 1, 1024)
+    _integer(active["scan_timeout_seconds"], "active.scan_timeout_seconds", 1, 86400)
     paths = config["paths"]
     if not isinstance(paths["nmap_results"], str) or not Path(paths["nmap_results"]).is_absolute():
         raise ConfigurationError("paths.nmap_results must be an absolute path")

@@ -128,7 +128,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** the same file imports once; a later distinct scan creates new observations; incomplete files defer safely; permission errors affect only that artifact.
 - **Balance:** importer is read-only toward the existing result tree and does not change its retention or cron schedule.
 
-### [ ] T202 Add explicit existing-script invocation
+### [x] T202 Add explicit existing-script invocation
 
 - **Depends on:** T104, T105
 - **Deliver:** `scan nmap` wrapper for `/usr/local/sbin/network-discovery-scan.sh` with operator confirmation/explicit flag, approved interface context, timeout, exit propagation, and run audit record.
