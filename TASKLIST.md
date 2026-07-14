@@ -85,7 +85,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** duplicate writes are idempotent; interrupted runs remain visibly incomplete; backup restores to a valid database; pruning respects each retention class.
 - **Balance:** destructive maintenance supports dry-run and refuses to act outside configured data directories.
 
-### [ ] T103 Implement deterministic normalization and correlation
+### [x] T103 Implement deterministic normalization and correlation
 
 - **Depends on:** T101
 - **Deliver:** canonical models and explainable correlation across MAC, IP, hostname, serial, and source IDs, including conflict handling and confidence.
