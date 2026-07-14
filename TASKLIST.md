@@ -149,7 +149,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** new completed XML is imported once; partial files wait; restart catches missed files; failures retry with rate limits.
 - **Balance:** verify the original nmap cron text/checksum and Scanopy health are unchanged.
 
-### [ ] G2 Stage 2 gate
+### [x] G2 Stage 2 gate
 
 - **Depends on:** T202, T203, T204
 - **Verify:** sanitized real-world nmap fixture imports twice idempotently; inventory is correct; DOCX validates; importer survives restart; existing Scanopy and cron baseline comparison passes.
