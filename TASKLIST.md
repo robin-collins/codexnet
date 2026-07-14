@@ -178,7 +178,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** IPv4 fixtures, duplicate announcements, goodbye records, malformed names, oversized TXT, and cache expiry pass.
 - **Balance:** sensitive TXT fields are redacted before persistence.
 
-### [ ] T303 Add DHCP observation
+### [x] T303 Add DHCP observation
 
 - **Depends on:** T300
 - **Deliver:** server/offers/ACK observations for visible server/client identity, address, lease, hostname, vendor class, router, DNS, and domain options.

@@ -1,0 +1,9 @@
+[
+  {"name":"discover","message_type":1,"op":1,"xid":305419896,"client_mac":"001122334455","requested":"192.168.50.100","hostname":"workstation-1"},
+  {"name":"offer-a","message_type":2,"op":2,"xid":305419896,"client_mac":"001122334455","assigned":"192.168.50.100","server":"192.168.50.1","lease":3600,"renewal":1800,"rebinding":3150,"routers":["192.168.50.1"],"dns":["192.168.50.1","192.168.50.2"],"domain":"example.invalid","vendor":"SyntheticClient"},
+  {"name":"request","message_type":3,"op":1,"xid":305419896,"client_mac":"001122334455","requested":"192.168.50.100","server":"192.168.50.1"},
+  {"name":"ack","message_type":5,"op":2,"xid":305419896,"client_mac":"001122334455","assigned":"192.168.50.100","server":"192.168.50.1","lease":3600},
+  {"name":"offer-b","message_type":2,"op":2,"xid":305419896,"client_mac":"001122334455","assigned":"192.168.50.101","server":"192.168.50.2","lease":1800},
+  {"name":"renew-request","message_type":3,"op":1,"xid":2271560481,"client_mac":"001122334455","client_address":"192.168.50.100","server":"192.168.50.1"},
+  {"name":"renew-ack","message_type":5,"op":2,"xid":2271560481,"client_mac":"001122334455","client_address":"192.168.50.100","server":"192.168.50.1","lease":7200}
+]
