@@ -221,7 +221,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** fake collectors demonstrate success, timeout, auth failure, partial data, cancellation, and one collector failing while others complete.
 - **Balance:** scheduler refuses targets outside configured ranges and never logs credential values.
 
-### [ ] T401 Implement SNMP transport and profiles
+### [x] T401 Implement SNMP transport and profiles
 
 - **Depends on:** T105, T400
 - **Deliver:** SNMPv3 preferred and explicit v2c support, base system/interface/address/LLDP data, profile/OID registry, raw unknown OID handling, and `collect snmp`.

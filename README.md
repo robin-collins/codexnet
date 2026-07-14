@@ -103,6 +103,10 @@ Collector lifecycle, target approval, bounded scheduling, cancellation, and dura
 documented in [docs/collector-framework.md](docs/collector-framework.md). Protocol-specific active
 collectors remain disabled until their corresponding implementation task is complete.
 
+SNMPv3-first collection supports bounded system, interface, IPv4 address, and LLDP profiles.
+Legacy SNMPv2c requires an explicit insecure-protocol opt-in and produces a security notice. See
+[docs/snmp-collection.md](docs/snmp-collection.md) for credential profiles and operation.
+
 Configured UniFi OS and legacy controllers can be queried with `collect unifi`. Detection uses
 existing evidence only, controller TLS verification is strict by default, and API reads are
 bounded and allowlisted. See [docs/unifi-collection.md](docs/unifi-collection.md).

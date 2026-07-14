@@ -32,6 +32,7 @@ from field_discovery.nmap_import import NmapImportError, import_nmap_artifacts
 from field_discovery.nmap_scan import ScanLaunchError, run_nmap_scan
 from field_discovery.reporting import ReportError, generate_reports, validate_docx
 from field_discovery.repository import Repository, RepositoryError, RetentionCutoffs
+from field_discovery.snmp import SnmpCollector
 from field_discovery.ssh_collection import (
     ConfigSecretResolver,
     NetmikoSessionFactory,
@@ -99,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     passive_sub = passive.add_subparsers(dest="detail", required=True)
     _command_parser(passive_sub, "status", "show passive observer status")
     snmp = _command_parser(collect_sub, "snmp", "run SNMP collection")
-    snmp.add_argument("--target", action="append")
+    snmp.add_argument("--target", action="append", required=True)
     unifi = _command_parser(collect_sub, "unifi", "run UniFi collection")
     unifi.add_argument("--controller", action="append")
     ad = _command_parser(collect_sub, "ad", "run Active Directory collection")
@@ -256,6 +257,93 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
             json_mode=arguments.json_mode,
         )
         return int(ExitCode.SUCCESS)
+    if command == "collect snmp":
+        paths = configuration.data["paths"]
+        settings = configuration.data["collectors"]["snmp"]
+        reference = CredentialReference.from_mapping(settings["credential_ref"])
+        if reference is None:
+            _emit(
+                {
+                    "ok": False,
+                    "command": command,
+                    "message": "SNMP collection requires a configured credential reference.",
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.CONFIGURATION)
+        notice: str | None = None
+        if settings["protocol"] == "v2c":
+            notice = "Security notice: SNMPv2c is unencrypted and was explicitly enabled."
+            logger.warning("snmp_v2c_explicitly_enabled", extra={"command": command})
+        snmp_repository: Repository | None = None
+        try:
+            snmp_repository = Repository.open(
+                Path(paths["database"]), data_root=Path(paths["data_root"])
+            )
+            timestamp = datetime.now(UTC)
+            deployment_id = snmp_repository.upsert_deployment(
+                "default", "Default deployment", timestamp.isoformat()
+            )
+            scheduler = configuration.data["scheduler"]
+            snmp_collector = SnmpCollector(
+                repository=snmp_repository,
+                deployment_id=deployment_id,
+                protocol=settings["protocol"],
+                allow_insecure_v2c=settings["allow_insecure_v2c"],
+                providers=configuration.data["secret_providers"],
+                timeout_seconds=scheduler["timeout_seconds"],
+            )
+            orchestrator = CollectorOrchestrator(
+                repository=snmp_repository,
+                deployment_id=deployment_id,
+                approved_ranges=configuration.data["active"]["approved_ranges"],
+                collectors={"snmp": snmp_collector},
+                concurrency=scheduler["concurrency"],
+                timeout_seconds=scheduler["timeout_seconds"],
+                retries=scheduler["retries"],
+                interface_name=configuration.data["interface"]["name"],
+            )
+            summaries = asyncio.run(
+                orchestrator.run(
+                    [
+                        CollectorRequest("snmp", target, reference)
+                        for target in cast(list[str], arguments.target)
+                    ]
+                )
+            )
+            failures = sum(summary.status not in {"succeeded", "partial"} for summary in summaries)
+            partial = sum(summary.status == "partial" for summary in summaries)
+            total = sum(summary.item_count for summary in summaries)
+            ok = failures == 0
+            message = (
+                f"SNMP collection: {total} facts, {partial} partial, {failures} failed targets."
+            )
+            if notice is not None:
+                message = f"{notice} {message}"
+            _emit(
+                {
+                    "ok": ok,
+                    "command": command,
+                    "message": message,
+                    "facts": total,
+                    "partial": partial,
+                    "failures": failures,
+                    "protocol": settings["protocol"],
+                    "security_notice": notice,
+                },
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.SUCCESS if ok else ExitCode.COLLECTOR)
+        except (CollectorError, RepositoryError, sqlite3.Error, OSError) as exc:
+            logger.error("snmp_collection_failed", extra={"command": command, "reason": str(exc)})
+            _emit(
+                {"ok": False, "command": command, "message": f"SNMP collection failed: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.COLLECTOR)
+        finally:
+            if snmp_repository is not None:
+                snmp_repository.close()
     if command == "collect unifi":
         endpoints = configuration.data["collectors"]["unifi"]["endpoints"]
         selected = set(arguments.controller or ())

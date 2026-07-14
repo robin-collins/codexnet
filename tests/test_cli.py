@@ -14,6 +14,7 @@ import pytest
 import yaml
 
 from field_discovery import cli
+from field_discovery.collectors import CollectorResult
 from field_discovery.repository import IntegrityResult, Repository, RepositoryError
 from field_discovery.subnet import SubnetDescription, SubnetResolutionError
 
@@ -100,7 +101,6 @@ def test_validate_json_output_and_logs_are_machine_readable(
     "arguments",
     [
         ("collect", "passive", "status"),
-        ("collect", "snmp", "--target", "192.168.50.10"),
         ("collect", "ad", "--domain", "example.invalid"),
         ("doctor",),
     ],
@@ -112,6 +112,122 @@ def test_spec_placeholder_commands_are_present_and_explicit(
     captured = capsys.readouterr()
     assert "not implemented yet" in captured.out
     assert "command_unavailable" in captured.err
+
+
+def test_collect_snmp_cli_uses_common_scope_and_opaque_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, root = database_config(tmp_path)
+    calls: list[object] = []
+
+    class FakeCollector:
+        async def collect(self, context: object) -> CollectorResult:
+            calls.append(context)
+            return CollectorResult(2)
+
+    monkeypatch.setattr(cli, "SnmpCollector", lambda **_kwargs: FakeCollector())
+    code = cli.run(
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "collect",
+            "snmp",
+            "--target",
+            "192.168.50.10",
+        ],
+        run_id="snmp-run",
+    )
+    assert code == cli.ExitCode.SUCCESS
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert (payload["facts"], payload["failures"], payload["protocol"]) == (2, 0, "v3")
+    assert payload["security_notice"] is None
+    assert len(calls) == 1
+    connection = sqlite3.connect(root / "discovery.db")
+    assert connection.execute("SELECT status FROM collector_runs").fetchone()[0] == "succeeded"
+    connection.close()
+
+
+def test_collect_snmp_cli_refuses_unapproved_target_and_missing_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, _root = database_config(tmp_path)
+    monkeypatch.setattr(
+        cli, "SnmpCollector", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("called"))
+    )
+    document = yaml.safe_load(config_path.read_text())
+    document["collectors"]["snmp"]["credential_ref"] = None
+    config_path.write_text(yaml.safe_dump(document))
+    code = cli.run(
+        ["--config", str(config_path), "collect", "snmp", "--target", "192.168.50.10"],
+        run_id="snmp-no-ref",
+    )
+    assert code == cli.ExitCode.CONFIGURATION
+    assert "credential reference" in capsys.readouterr().out
+
+    document["collectors"]["snmp"]["credential_ref"] = {
+        "provider": "appliance_env",
+        "key": "SNMP_SITE_PROFILE",
+    }
+    config_path.write_text(yaml.safe_dump(document))
+    monkeypatch.setattr(cli, "SnmpCollector", lambda **_kwargs: object())
+    code = cli.run(
+        ["--config", str(config_path), "collect", "snmp", "--target", "10.0.0.1"],
+        run_id="snmp-outside",
+    )
+    assert code == cli.ExitCode.COLLECTOR
+    assert "outside approved" in capsys.readouterr().out
+
+
+def test_collect_snmp_v2c_notice_and_failure_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, _root = database_config(tmp_path)
+    document = yaml.safe_load(config_path.read_text())
+    document["collectors"]["snmp"].update({"protocol": "v2c", "allow_insecure_v2c": True})
+    config_path.write_text(yaml.safe_dump(document))
+
+    class FailingCollector:
+        async def collect(self, _context: object) -> CollectorResult:
+            raise cli.CollectorError("synthetic refusal")
+
+    monkeypatch.setattr(cli, "SnmpCollector", lambda **_kwargs: FailingCollector())
+    code = cli.run(
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "collect",
+            "snmp",
+            "--target",
+            "192.168.50.10",
+        ],
+        run_id="snmp-v2c",
+    )
+    assert code == cli.ExitCode.COLLECTOR
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert "unencrypted" in payload["security_notice"]
+    assert payload["failures"] == 1
+    assert "snmp_v2c_explicitly_enabled" in captured.err
+
+
+def test_collect_snmp_repository_failure_is_safe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path, _root = database_config(tmp_path)
+    monkeypatch.setattr(
+        cli.Repository, "open", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline"))
+    )
+    code = cli.run(
+        ["--config", str(config_path), "collect", "snmp", "--target", "192.168.50.10"],
+        run_id="snmp-db-fail",
+    )
+    assert code == cli.ExitCode.COLLECTOR
+    captured = capsys.readouterr()
+    assert "SNMP collection failed" in captured.out
+    assert "snmp_collection_failed" in captured.err
 
 
 def test_collect_unifi_cli_runs_only_configured_controller(

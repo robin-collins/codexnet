@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = { text = "Proprietary" }
 authors = [{ name = "Robin Collins" }]
-dependencies = ["PyYAML==6.0.2"]
+dependencies = ["cryptography==49.0.0", "PyYAML==6.0.2", "pysnmp==7.1.27"]
 
 [project.scripts]
 field-discovery = "field_discovery.cli:main"
