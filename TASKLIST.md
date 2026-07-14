@@ -185,7 +185,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** DORA sequence, multiple servers, renewals, malformed options, and DHCP address reuse fixtures pass.
 - **Balance:** service never acts as a DHCP client/server and stores no unrestricted payloads.
 
-### [ ] T304 Add ARP and neighbor observation
+### [x] T304 Add ARP and neighbor observation
 
 - **Depends on:** T300
 - **Deliver:** ARP event and kernel neighbor-table ingestion with state, first/last seen, deduplication, and aging.
