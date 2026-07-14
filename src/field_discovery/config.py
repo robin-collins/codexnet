@@ -57,7 +57,11 @@ class Configuration:
 _DEFAULTS: dict[str, Any] = {
     "interface": {"name": "eth0", "allow_excluded_interface": False},
     "active": {"approved_ranges": [], "max_hosts": 256},
-    "paths": {"nmap_results": "/var/log/network-discovery"},
+    "paths": {
+        "nmap_results": "/var/log/network-discovery",
+        "data_root": "/var/lib/field-discovery",
+        "database": "/var/lib/field-discovery/discovery.db",
+    },
     "scheduler": {
         "interval_seconds": 3600,
         "jitter_seconds": 120,
@@ -106,7 +110,7 @@ _ALLOWED: dict[str, set[str]] = {
     },
     "interface": {"name", "allow_excluded_interface"},
     "active": {"approved_ranges", "max_hosts"},
-    "paths": {"nmap_results"},
+    "paths": {"nmap_results", "data_root", "database"},
     "scheduler": {
         "interval_seconds",
         "jitter_seconds",
@@ -280,6 +284,16 @@ def _validate_types(config: dict[str, Any]) -> None:
     paths = config["paths"]
     if not isinstance(paths["nmap_results"], str) or not Path(paths["nmap_results"]).is_absolute():
         raise ConfigurationError("paths.nmap_results must be an absolute path")
+    for name in ("data_root", "database"):
+        value = paths[name]
+        if not isinstance(value, str) or not Path(value).is_absolute():
+            raise ConfigurationError(f"paths.{name} must be an absolute path")
+        if ".." in Path(value).parts:
+            raise ConfigurationError(f"paths.{name} must not contain parent traversal")
+    data_root = Path(paths["data_root"])
+    database = Path(paths["database"])
+    if database == data_root or not database.is_relative_to(data_root):
+        raise ConfigurationError("paths.database must be inside paths.data_root")
     scheduler = config["scheduler"]
     _integer(scheduler["interval_seconds"], "scheduler.interval_seconds", 60, 604800)
     _integer(scheduler["jitter_seconds"], "scheduler.jitter_seconds", 0, 3600)

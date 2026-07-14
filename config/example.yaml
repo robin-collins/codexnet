@@ -14,6 +14,9 @@ active:
 paths:
   # Read-only input owned by the existing protected nmap process.
   nmap_results: /var/log/network-discovery
+  # CodexNet-owned state. Maintenance refuses paths outside this real directory.
+  data_root: /var/lib/field-discovery
+  database: /var/lib/field-discovery/discovery.db
 
 scheduler:
   interval_seconds: 3600

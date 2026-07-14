@@ -8,8 +8,10 @@ import socket
 from pathlib import Path
 
 import pytest
+import yaml
 
 from field_discovery import cli
+from field_discovery.repository import IntegrityResult, RepositoryError
 from field_discovery.subnet import SubnetDescription, SubnetResolutionError
 
 ROOT = Path(__file__).parents[1]
@@ -18,6 +20,17 @@ CONFIG = ROOT / "config/example.yaml"
 
 def invoke(*arguments: str) -> int:
     return cli.run(["--config", str(CONFIG), *arguments], run_id="test-run")
+
+
+def database_config(tmp_path: Path) -> tuple[Path, Path]:
+    document = yaml.safe_load(CONFIG.read_text())
+    root = tmp_path / "data"
+    root.mkdir(mode=0o700)
+    document["paths"]["data_root"] = str(root)
+    document["paths"]["database"] = str(root / "discovery.db")
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(document))
+    return path, root
 
 
 def test_help_and_version_do_not_load_configuration_or_network(
@@ -92,9 +105,6 @@ def test_validate_json_output_and_logs_are_machine_readable(
         ("scan", "nmap"),
         ("report", "generate", "--format", "docx"),
         ("report", "validate", "/tmp/report.docx"),
-        ("db", "check"),
-        ("db", "backup"),
-        ("db", "prune"),
         ("doctor",),
     ],
 )
@@ -166,6 +176,62 @@ def test_discover_subnet_failure_is_stable(
     captured = capsys.readouterr()
     assert "synthetic unavailable" in captured.out
     assert "subnet_resolution_failed" in captured.err
+
+
+def test_database_cli_check_backup_and_prune(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config, root = database_config(tmp_path)
+    prefix = ["--json", "--config", str(config), "db"]
+    assert cli.run([*prefix, "check"], run_id="db-check") == cli.ExitCode.SUCCESS
+    checked = json.loads(capsys.readouterr().out)
+    assert checked["integrity"] == ["ok"]
+    assert checked["foreign_key_violations"] == []
+
+    explicit = root / "explicit-backup.db"
+    assert (
+        cli.run([*prefix, "backup", "--output", str(explicit)], run_id="db-backup")
+        == cli.ExitCode.SUCCESS
+    )
+    assert explicit.is_file()
+    assert json.loads(capsys.readouterr().out)["path"] == str(explicit)
+
+    assert cli.run([*prefix, "backup"], run_id="db-backup-default") == cli.ExitCode.SUCCESS
+    assert "discovery-backup-" in json.loads(capsys.readouterr().out)["path"]
+
+    assert cli.run([*prefix, "prune"], run_id="db-prune") == cli.ExitCode.SUCCESS
+    assert json.loads(capsys.readouterr().out)["dry_run"] is True
+    assert cli.run([*prefix, "prune", "--apply"], run_id="db-prune") == cli.ExitCode.SUCCESS
+    assert json.loads(capsys.readouterr().out)["dry_run"] is False
+
+
+def test_database_cli_failed_integrity_and_operation_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config, _root = database_config(tmp_path)
+
+    class FailedRepository:
+        def integrity_check(self) -> IntegrityResult:
+            return IntegrityResult(("damaged",), ({"table": "fixture"},))
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli.Repository, "open", lambda *_args, **_kwargs: FailedRepository())
+    arguments = ["--json", "--config", str(config), "db", "check"]
+    assert cli.run(arguments, run_id="db-failed") == cli.ExitCode.DATABASE
+    assert json.loads(capsys.readouterr().out)["ok"] is False
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise RepositoryError("synthetic failure")
+
+    monkeypatch.setattr(cli.Repository, "open", fail)
+    assert cli.run(arguments, run_id="db-error") == cli.ExitCode.DATABASE
+    captured = capsys.readouterr()
+    assert "synthetic failure" in captured.out
+    assert "database_operation_failed" in captured.err
 
 
 def test_main_maps_interrupt_and_unexpected_failures(

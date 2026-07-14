@@ -72,6 +72,8 @@ def test_root_contract_failures(document: object, message: str) -> None:
         ("active.approved_ranges", "192.168.1.0/24", "must be a list"),
         ("active.max_hosts", True, "integer from 1 to 1024"),
         ("paths.nmap_results", "relative", "absolute path"),
+        ("paths.data_root", "relative", "absolute path"),
+        ("paths.database", "relative", "absolute path"),
         ("scheduler.interval_seconds", 59, "integer from 60"),
         ("scheduler.jitter_seconds", 3600, "less than interval_seconds"),
         ("scheduler.timeout_seconds", 0, "integer from 1"),
@@ -94,6 +96,22 @@ def test_explicit_excluded_interface_and_null_report_template_are_allowed() -> N
     document = set_path(document, "interface.allow_excluded_interface", True)
     document = set_path(document, "report.template", None)
     assert validate_config(document).data["interface"]["name"] == "wlan0"
+
+
+@pytest.mark.parametrize(
+    ("data_root", "database", "message"),
+    [
+        ("/var/lib/field-discovery", "/tmp/outside.db", "must be inside"),
+        ("/var/lib/field-discovery", "/var/lib/field-discovery", "must be inside"),
+        ("/var/lib/field-discovery/../escape", "/var/lib/escape/db", "parent traversal"),
+        ("/var/lib/field-discovery", "/var/lib/field-discovery/../escape.db", "parent traversal"),
+    ],
+)
+def test_database_paths_are_lexically_confined(data_root: str, database: str, message: str) -> None:
+    document = set_path(example(), "paths.data_root", data_root)
+    document = set_path(document, "paths.database", database)
+    with pytest.raises(ConfigurationError, match=message):
+        validate_config(document)
 
 
 @pytest.mark.parametrize(

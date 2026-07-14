@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sqlite3
 import sys
 import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, NoReturn, cast
@@ -15,6 +17,7 @@ from typing import Any, NoReturn, cast
 from field_discovery import __version__
 from field_discovery.config import ConfigurationError, load_config
 from field_discovery.logging import configure_logging
+from field_discovery.repository import Repository, RepositoryError, RetentionCutoffs
 from field_discovery.subnet import SubnetResolutionError, resolve_subnet
 
 DEFAULT_CONFIG = Path("/etc/field-discovery/config.yaml")
@@ -29,6 +32,7 @@ class ExitCode(IntEnum):
     NOT_IMPLEMENTED = 4
     INTERNAL = 70
     RESOLUTION = 5
+    DATABASE = 6
 
 
 class CliParser(argparse.ArgumentParser):
@@ -93,8 +97,10 @@ def build_parser() -> argparse.ArgumentParser:
     database = _command_parser(commands, "db", "database operations")
     database_sub = database.add_subparsers(dest="action", required=True)
     _command_parser(database_sub, "check", "check database integrity")
-    _command_parser(database_sub, "backup", "back up the database")
-    _command_parser(database_sub, "prune", "prune data according to retention policy")
+    backup = _command_parser(database_sub, "backup", "back up the database")
+    backup.add_argument("--output", type=Path, help="new path inside configured data root")
+    prune = _command_parser(database_sub, "prune", "prune data according to retention policy")
+    prune.add_argument("--apply", action="store_true", help="apply the default dry-run plan")
     _command_parser(commands, "doctor", "run appliance diagnostics")
     return parser
 
@@ -168,6 +174,79 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
             json_mode=arguments.json_mode,
         )
         return int(ExitCode.SUCCESS)
+    if arguments.group == "db":
+        paths = configuration.data["paths"]
+        try:
+            repository = Repository.open(
+                Path(paths["database"]), data_root=Path(paths["data_root"])
+            )
+            try:
+                if arguments.action == "check":
+                    integrity_result = repository.integrity_check()
+                    payload = {
+                        "ok": integrity_result.ok,
+                        "command": command,
+                        "message": (
+                            "Database integrity checks passed."
+                            if integrity_result.ok
+                            else "Database integrity checks failed."
+                        ),
+                        "integrity": list(integrity_result.integrity),
+                        "foreign_key_violations": list(integrity_result.foreign_key_violations),
+                    }
+                    logger.info(
+                        "database_checked",
+                        extra={"command": command, "ok": integrity_result.ok},
+                    )
+                    _emit(payload, json_mode=arguments.json_mode)
+                    return int(ExitCode.SUCCESS if integrity_result.ok else ExitCode.DATABASE)
+                if arguments.action == "backup":
+                    destination = arguments.output or Path(paths["data_root"]) / (
+                        f"discovery-backup-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.db"
+                    )
+                    backup_path = repository.backup(destination)
+                    logger.info("database_backed_up", extra={"command": command})
+                    _emit(
+                        {
+                            "ok": True,
+                            "command": command,
+                            "message": f"Database backup created: {backup_path}",
+                            "path": str(backup_path),
+                        },
+                        json_mode=arguments.json_mode,
+                    )
+                    return int(ExitCode.SUCCESS)
+                retention_days = configuration.data["retention"]["detailed_days"]
+                cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).isoformat()
+                prune_result = repository.prune(
+                    RetentionCutoffs(cutoff, cutoff, cutoff), dry_run=not arguments.apply
+                )
+                mode = "preview" if prune_result.dry_run else "applied"
+                logger.info("database_prune_completed", extra={"command": command, "mode": mode})
+                _emit(
+                    {
+                        "ok": True,
+                        "command": command,
+                        "message": (
+                            f"Database prune {mode}: {sum(prune_result.counts.values())} rows."
+                        ),
+                        "dry_run": prune_result.dry_run,
+                        "counts": prune_result.counts,
+                    },
+                    json_mode=arguments.json_mode,
+                )
+                return int(ExitCode.SUCCESS)
+            finally:
+                repository.close()
+        except (RepositoryError, sqlite3.Error, OSError) as exc:
+            logger.error(
+                "database_operation_failed", extra={"command": command, "reason": str(exc)}
+            )
+            _emit(
+                {"ok": False, "command": command, "message": f"Database operation failed: {exc}"},
+                json_mode=arguments.json_mode,
+            )
+            return int(ExitCode.DATABASE)
     logger.warning("command_unavailable", extra={"command": command})
     _emit(
         {

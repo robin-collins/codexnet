@@ -19,6 +19,11 @@ does not itself authorise a target. Loopback, link-local, public, IPv6, and
 over-size ranges fail validation. Excluded interfaces require an explicit
 override.
 
+`paths.data_root` is the real CodexNet-owned state directory, and
+`paths.database` must be lexically inside it without parent traversal. Runtime database backup,
+export, and pruning additionally refuse symlinks, missing parents, and destinations outside that
+root. The separate `paths.nmap_results` tree remains read-only input.
+
 The minimum collector interval is 60 seconds. Timeout, retry, concurrency,
 jitter, and retention ranges are bounded in the schema and runtime validator.
 SNMPv2c and plaintext LDAP require visibly named explicit opt-ins. A UniFi

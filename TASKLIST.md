@@ -78,7 +78,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** migrate empty database to latest; rerun safely; foreign-key check and `PRAGMA integrity_check` pass; migration rollback/recovery procedure is documented.
 - **Balance:** fixture scan confirms no column stores secrets; every observed fact includes source and time provenance.
 
-### [ ] T102 Implement repository operations and retention
+### [x] T102 Implement repository operations and retention
 
 - **Depends on:** T101
 - **Deliver:** transactional CRUD/upsert layer, artifact digest tracking, run lifecycle, backup, integrity check, retention pruning, and sanitized JSON export.

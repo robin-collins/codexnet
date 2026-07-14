@@ -23,7 +23,11 @@
     },
     "paths": {
       "type": "object", "additionalProperties": false,
-      "properties": {"nmap_results": {"type": "string", "pattern": "^/"}}
+      "properties": {
+        "nmap_results": {"type": "string", "pattern": "^/"},
+        "data_root": {"type": "string", "pattern": "^/"},
+        "database": {"type": "string", "pattern": "^/"}
+      }
     },
     "scheduler": {
       "type": "object", "additionalProperties": false,
