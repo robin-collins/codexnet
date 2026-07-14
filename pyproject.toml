@@ -32,7 +32,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-field_discovery = ["py.typed"]
+field_discovery = ["py.typed", "migrations/*.sql"]
 
 [tool.ruff]
 target-version = "py311"

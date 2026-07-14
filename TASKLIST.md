@@ -71,7 +71,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** CLI help and version work without root or network; invalid configuration returns nonzero; logs contain timestamps/run IDs and no ANSI codes in JSON mode.
 - **Balance:** importing the package must cause no network, filesystem, or privilege side effects.
 
-### [ ] T101 Implement the SQLite schema and migrations
+### [x] T101 Implement the SQLite schema and migrations
 
 - **Depends on:** T003, T100
 - **Deliver:** normalized schema for deployments, devices, aliases, interfaces, addresses, services, observations, topology, collector runs/errors, artifacts, AD entities, infrastructure readings, and reports; numbered migrations; foreign keys and WAL mode.
