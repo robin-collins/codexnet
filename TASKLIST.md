@@ -292,7 +292,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** expected fixture graphs and DOCX sections are deterministic, readable, source-labelled, and omit forbidden attributes.
 - **Balance:** redaction and prohibited-content scans pass against raw artifacts, SQLite, JSON, diagrams, and DOCX XML.
 
-### [ ] G5 Stage 5 gate
+### [x] G5 Stage 5 gate
 
 - **Depends on:** T504
 - **Verify:** mock/fixture suites pass; explicitly approved lab tests use read-only accounts; TLS, credential, redaction, target-scope, and prohibited-AD-function reviews pass.
