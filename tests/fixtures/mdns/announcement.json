@@ -1,0 +1,12 @@
+{
+  "service_type": "_http._tcp.local",
+  "instance": "synthetic-printer._http._tcp.local",
+  "hostname": "synthetic-printer.local",
+  "address": "192.0.2.44",
+  "port": 631,
+  "txt": [
+    "note=synthetic fixture",
+    "password=fixture-only-secret",
+    "token=fixture-only-token"
+  ]
+}

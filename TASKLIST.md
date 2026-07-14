@@ -171,7 +171,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** Cisco, Aruba/HP, generic LLDP, unknown TLV, truncated frame, and expiry fixtures normalize correctly.
 - **Balance:** observer sends no discovery requests unless an explicitly documented protocol requirement is approved.
 
-### [ ] T302 Add mDNS/DNS-SD observation
+### [x] T302 Add mDNS/DNS-SD observation
 
 - **Depends on:** T300
 - **Deliver:** service/instance/hostname/address/TXT observations with bounded TXT handling and expiration.
