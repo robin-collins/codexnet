@@ -15,6 +15,7 @@ htmlcov/
 *.egg-info/
 build/
 dist/
+site/
 
 # Runtime data and generated reports
 *.db

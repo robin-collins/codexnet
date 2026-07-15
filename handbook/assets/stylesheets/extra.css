@@ -1,0 +1,78 @@
+:root {
+  --codexnet-navy: #102a43;
+  --codexnet-blue: #1677a6;
+  --codexnet-cyan: #2bb3c0;
+  --codexnet-amber: #f2a900;
+}
+
+:root > * {
+  --md-primary-fg-color: var(--codexnet-navy);
+  --md-primary-fg-color--light: #1f4f73;
+  --md-primary-fg-color--dark: #071b2d;
+  --md-accent-fg-color: var(--codexnet-blue);
+  --md-typeset-a-color: #126b91;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-hue: 205;
+  --md-primary-fg-color: #0c263b;
+  --md-accent-fg-color: #53d2dc;
+  --md-typeset-a-color: #65d5e0;
+}
+
+.md-header {
+  border-bottom: 3px solid var(--codexnet-cyan);
+}
+
+.md-typeset h1 {
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.md-typeset h2 {
+  border-bottom: 1px solid color-mix(in srgb, var(--md-default-fg-color) 18%, transparent);
+  padding-bottom: 0.25rem;
+}
+
+.md-typeset .admonition.danger,
+.md-typeset details.danger {
+  border-color: #c62828;
+}
+
+.md-typeset .admonition.warning,
+.md-typeset details.warning {
+  border-color: var(--codexnet-amber);
+}
+
+.md-typeset code {
+  border-radius: 0.2rem;
+}
+
+.hero {
+  background: linear-gradient(135deg, #102a43 0%, #126b91 60%, #2bb3c0 100%);
+  border-radius: 0.6rem;
+  color: white;
+  margin: 0 0 1.5rem;
+  padding: 1.8rem 2rem;
+}
+
+.hero h1,
+.hero p {
+  color: white;
+  margin-bottom: 0.45rem;
+}
+
+.hero .md-button {
+  border-color: white;
+  color: white;
+  margin: 0.6rem 0.4rem 0 0;
+}
+
+.hero .md-button--primary {
+  background: white;
+  color: var(--codexnet-navy);
+}
+
+.checklist li {
+  margin-bottom: 0.35rem;
+}

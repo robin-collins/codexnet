@@ -1,0 +1,2 @@
+# Documentation-only dependency. Kept separate from the ARM64 appliance runtime lock.
+mkdocs-material==9.7.6

@@ -10,6 +10,16 @@ installation and upgrade, credential profiles, normal collection, explicit manua
 validated Word handoff, backup/restore, troubleshooting, retention, and protected-state-safe
 removal.
 
+The technician-focused [CodexNet Field Handbook](https://robin-collins.github.io/codexnet/) is
+built from [`handbook/`](handbook/index.md) with Material for MkDocs and published through the repository's
+GitHub Pages workflow. Build it locally with:
+
+```bash
+python3 -m venv .docs-venv
+.docs-venv/bin/python -m pip install --requirement requirements-docs.lock
+.docs-venv/bin/mkdocs build --strict
+```
+
 ## Project status
 
 Foundation implementation is in progress according to [TASKLIST.md](TASKLIST.md).

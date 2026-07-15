@@ -1,0 +1,98 @@
+site_name: CodexNet Field Handbook
+site_description: Onsite technician guide for safe network discovery and documentation with CodexNet
+site_url: https://robin-collins.github.io/codexnet/
+repo_url: https://github.com/robin-collins/codexnet
+repo_name: robin-collins/codexnet
+edit_uri: edit/main/handbook/
+docs_dir: handbook
+site_dir: site
+strict: true
+
+theme:
+  name: material
+  language: en
+  font: false
+  icon:
+    logo: material/radar
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.path
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.tabs.link
+    - search.highlight
+    - search.share
+
+plugins:
+  - search:
+      lang: en
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra_css:
+  - assets/stylesheets/extra.css
+
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/robin-collins/codexnet
+      name: CodexNet on GitHub
+
+copyright: Copyright &copy; 2026 Robin Collins. Authorised network assessment use only.
+
+nav:
+  - Home: index.md
+  - Start a site:
+      - Before you leave: getting-started/pre-deployment.md
+      - New-site setup: getting-started/new-site.md
+      - Install or upgrade: getting-started/install.md
+  - Configure:
+      - Site configuration: configuration/site-config.md
+      - Credentials: configuration/credentials.md
+  - Operate:
+      - Onsite runbook: operations/runbook.md
+      - Collectors: operations/collectors.md
+      - Reports and handoff: operations/reporting.md
+      - Troubleshooting: operations/troubleshooting.md
+      - Site closeout: operations/closeout.md
+  - Reference:
+      - Command reference: reference/commands.md
+      - Files and services: reference/files-services.md
+      - Safety boundaries: reference/safety.md
