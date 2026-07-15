@@ -231,6 +231,77 @@ def test_enabled_ad_requires_approved_domain_and_base_dn() -> None:
         validate_config(document)
 
 
+def test_enabled_scheduled_targets_must_be_concrete_and_approved() -> None:
+    snmp = set_path(example(), "collectors.snmp.enabled", True)
+    snmp = set_path(snmp, "collectors.snmp.targets", ["192.168.50.10"])
+    assert validate_config(snmp).data["collectors"]["snmp"]["targets"] == ["192.168.50.10"]
+    with pytest.raises(ConfigurationError, match="outside active.approved_ranges"):
+        validate_config(set_path(snmp, "collectors.snmp.targets", ["10.0.0.10"]))
+
+    ad = set_path(example(), "collectors.ad.enabled", True)
+    with pytest.raises(ConfigurationError, match="requires one approved target"):
+        validate_config(ad)
+    assert validate_config(set_path(ad, "collectors.ad.target", "192.168.50.20"))
+
+    ssh = set_path(example(), "collectors.ssh.enabled", True)
+    ssh = set_path(
+        ssh,
+        "collectors.ssh.targets",
+        [{"address": "192.168.50.30", "platform": "cisco_ios"}],
+    )
+    assert validate_config(ssh).data["collectors"]["ssh"]["targets"][0]["platform"] == "cisco_ios"
+
+    unifi = set_path(example(), "collectors.unifi.enabled", True)
+    assert validate_config(unifi).data["collectors"]["unifi"]["enabled"] is True
+    unifi["collectors"]["unifi"]["endpoints"][0].pop("approved_address")
+    with pytest.raises(ConfigurationError, match="approved_address is required"):
+        validate_config(unifi)
+    disabled_unifi = example()
+    disabled_unifi["collectors"]["unifi"]["endpoints"][0].pop("approved_address")
+    assert validate_config(disabled_unifi).data["collectors"]["unifi"]["enabled"] is False
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "message"),
+    [
+        ("collectors.snmp.targets", "not-a-list", "bounded list"),
+        ("collectors.snmp.targets", [3], "one IPv4 address"),
+        ("collectors.snmp.targets", ["not-an-address"], "one IPv4 address"),
+        ("collectors.ad.target", 3, "one IPv4 address"),
+        ("collectors.ssh.targets", "not-a-list", "bounded list"),
+        ("collectors.ssh.targets", ["not-a-mapping"], "must be a mapping"),
+        (
+            "collectors.ssh.targets",
+            [{"address": "192.168.50.30", "platform": "future"}],
+            "platform must be",
+        ),
+        (
+            "collectors.ssh.targets",
+            [{"address": 3, "platform": "cisco_ios"}],
+            "one IPv4 address",
+        ),
+    ],
+)
+def test_invalid_scheduled_target_shapes_fail(path: str, value: object, message: str) -> None:
+    with pytest.raises(ConfigurationError, match=message):
+        validate_config(set_path(example(), path, value))
+
+
+def test_scheduled_target_lists_respect_host_limit_and_known_keys() -> None:
+    too_many = ["192.168.50.10"] * 257
+    with pytest.raises(ConfigurationError, match="snmp.targets must be a bounded list"):
+        validate_config(set_path(example(), "collectors.snmp.targets", too_many))
+    ssh_too_many = [{"address": "192.168.50.30", "platform": "cisco_ios"}] * 257
+    with pytest.raises(ConfigurationError, match="ssh.targets must be a bounded list"):
+        validate_config(set_path(example(), "collectors.ssh.targets", ssh_too_many))
+    document = example()
+    document["collectors"]["ssh"]["targets"] = [
+        {"address": "192.168.50.30", "platform": "cisco_ios", "extra": True}
+    ]
+    with pytest.raises(ConfigurationError, match="unknown key: extra"):
+        validate_config(document)
+
+
 @pytest.mark.parametrize(
     ("path", "value", "message"),
     [

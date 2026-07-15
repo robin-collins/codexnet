@@ -38,6 +38,7 @@ from field_discovery.collectors import (
     CollectorOrchestrator,
     CollectorRequest,
     CredentialReference,
+    approve_target,
 )
 from field_discovery.config import ConfigurationError, load_config
 from field_discovery.diagnostics import collect_doctor, collect_status
@@ -206,6 +207,18 @@ def _emit(payload: dict[str, Any], *, json_mode: bool) -> None:
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         return
     print(str(payload["message"]))
+
+
+def _approved_unifi_target(endpoint: dict[str, object], approved_ranges: Sequence[str]) -> str:
+    """Pin a controller URL to one explicitly approved concrete IPv4 address."""
+    configured = endpoint.get("approved_address")
+    if not isinstance(configured, str):
+        raise UniFiError("UniFi endpoint requires an explicit approved_address")
+    approved = approve_target(configured, approved_ranges)
+    hostname = urlsplit(str(endpoint.get("url", ""))).hostname
+    if hostname != approved:
+        raise UniFiError("UniFi endpoint URL host must match its approved_address")
+    return approved
 
 
 def _emit_diagnostics(report: dict[str, object], *, command: str, json_mode: bool) -> None:
@@ -503,11 +516,14 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
             for value in endpoints:
                 endpoint = endpoint_from_config(value)
                 reference = CredentialReference.from_mapping(value.get("credential_ref"))
+                approved_target = _approved_unifi_target(
+                    value, configuration.data["active"]["approved_ranges"]
+                )
                 unifi_run = unifi_repository.start_run(
                     deployment_id,
                     "unifi",
                     timestamp.isoformat(),
-                    target_cidr=urlsplit(endpoint.url).hostname,
+                    target_cidr=approved_target,
                 )
                 try:
                     if reference is None:
@@ -525,7 +541,7 @@ def run(argv: Sequence[str] | None = None, *, run_id: str | None = None) -> int:
                     unifi_result = asyncio.run(
                         collector.collect(
                             CollectorContext(
-                                urlsplit(endpoint.url).hostname or "controller",
+                                approved_target,
                                 reference,
                                 asyncio.Event(),
                             )

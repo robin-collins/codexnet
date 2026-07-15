@@ -79,6 +79,7 @@ def test_complete_staged_service_install_and_remove_preserves_protected_state(
     tmp_path: Path,
 ) -> None:
     _run_installer("install-passive-service.sh", tmp_path)
+    _run_installer("install-scheduler-service.sh", tmp_path)
     _run_installer("install-nmap-import-service.sh", tmp_path)
     _run_installer("install-maintenance-services.sh", tmp_path)
 
@@ -90,6 +91,7 @@ def test_complete_staged_service_install_and_remove_preserves_protected_state(
         "field-discovery-nmap-import.service",
         "field-discovery-nmap-import.timer",
         "field-discovery-passive.service",
+        "field-discovery-scheduler.service",
         "field-discovery-recovery.service",
     }
     assert all(stat.S_IMODE(path.stat().st_mode) == 0o644 for path in unit_root.iterdir())

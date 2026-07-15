@@ -446,6 +446,26 @@ def test_collect_unifi_cli_records_safe_controller_and_repository_failures(
     assert "offline" in capsys.readouterr().out
 
 
+def test_unifi_target_is_pinned_to_explicit_approved_ipv4() -> None:
+    ranges = ["192.168.50.0/24"]
+    assert (
+        cli._approved_unifi_target(
+            {"url": "https://192.168.50.2", "approved_address": "192.168.50.2"}, ranges
+        )
+        == "192.168.50.2"
+    )
+    with pytest.raises(cli.UniFiError, match="requires an explicit"):
+        cli._approved_unifi_target({"url": "https://192.168.50.2"}, ranges)
+    with pytest.raises(cli.UniFiError, match="must match"):
+        cli._approved_unifi_target(
+            {"url": "https://controller.invalid", "approved_address": "192.168.50.2"}, ranges
+        )
+    with pytest.raises(cli.CollectorError, match="outside approved"):
+        cli._approved_unifi_target(
+            {"url": "https://10.0.0.2", "approved_address": "10.0.0.2"}, ranges
+        )
+
+
 def test_collect_ssh_cli_uses_explicit_platform_and_opaque_reference(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

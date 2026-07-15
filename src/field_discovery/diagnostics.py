@@ -30,11 +30,18 @@ DEPENDENCIES = (
     "pysnmp",
     "PyYAML",
 )
-CODEXNET_UNITS = (
+ACTIVE_CODEXNET_UNITS = (
     "field-discovery-passive.service",
-    "field-discovery-nmap-import.service",
+    "field-discovery-scheduler.service",
     "field-discovery-nmap-import.timer",
+    "field-discovery-backup.timer",
+    "field-discovery-recovery.service",
 )
+ONESHOT_CODEXNET_UNITS = (
+    "field-discovery-nmap-import.service",
+    "field-discovery-backup.service",
+)
+CODEXNET_UNITS = ACTIVE_CODEXNET_UNITS + ONESHOT_CODEXNET_UNITS
 SCANOPY_CONTAINERS = ("scanopy-server-1", "scanopy-postgres-1", "scanopy-daemon")
 
 
@@ -216,11 +223,17 @@ class LocalDiagnosticProbe:
 
     def service(self, name: str) -> Mapping[str, object]:
         result = self.runner(
-            ("systemctl", "show", "--property=LoadState,ActiveState,SubState", "--value", name),
+            (
+                "systemctl",
+                "show",
+                "--property=LoadState,ActiveState,SubState,Result",
+                "--value",
+                name,
+            ),
             5,
         )
         values = result.stdout.splitlines()
-        if result.returncode != 0 or len(values) < 3:
+        if result.returncode != 0 or len(values) < 4:
             return {"unit": name, "available": False}
         return {
             "unit": name,
@@ -228,6 +241,7 @@ class LocalDiagnosticProbe:
             "load_state": values[0],
             "active_state": values[1],
             "sub_state": values[2],
+            "result": values[3],
         }
 
     def clock_sync(self) -> bool | None:
@@ -496,17 +510,30 @@ def collect_doctor(
         service = active.service(name)
         services.append(service)
         available = bool(service.get("available"))
-        running = service.get("active_state") == "active"
+        active_required = name in ACTIVE_CODEXNET_UNITS
+        active_state = service.get("active_state")
+        result = service.get("result")
+        healthy = (
+            active_state == "active"
+            if active_required
+            else available
+            and active_state != "failed"
+            and result not in {"failed", "timeout", "watchdog", "exit-code", "signal"}
+        )
         checks.append(
             _check(
                 f"service_{name}",
                 "services",
-                "ok" if running else "warning" if not available else "error",
+                "ok" if healthy else "warning" if not available else "error",
                 f"{name} is active"
-                if running
+                if healthy and active_required
+                else f"{name} is installed and healthy"
+                if healthy
                 else f"{name} is not installed"
                 if not available
-                else f"{name} is not active",
+                else f"{name} is not active"
+                if active_required
+                else f"{name} is failed",
             )
         )
     synchronized = active.clock_sync()

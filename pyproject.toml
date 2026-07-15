@@ -23,6 +23,7 @@ dependencies = [
 [project.scripts]
 field-discovery = "field_discovery.cli:main"
 field-discovery-passive = "field_discovery.passive_service:main"
+field-discovery-scheduler = "field_discovery.scheduler_service:main"
 
 [project.optional-dependencies]
 dev = [

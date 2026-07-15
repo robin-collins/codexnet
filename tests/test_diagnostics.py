@@ -15,8 +15,10 @@ import pytest
 from field_discovery import diagnostics
 from field_discovery.database import APPLICATION_ID
 from field_discovery.diagnostics import (
+    ACTIVE_CODEXNET_UNITS,
     CODEXNET_UNITS,
     DEPENDENCIES,
+    ONESHOT_CODEXNET_UNITS,
     SCANOPY_CONTAINERS,
     CommandResult,
     DiagnosticCheck,
@@ -116,6 +118,7 @@ class FakeProbe:
                 "available": True,
                 "active_state": "active",
                 "sub_state": "running",
+                "result": "success",
             }
             for name in CODEXNET_UNITS
         }
@@ -249,15 +252,27 @@ def test_doctor_classifies_dependencies_services_clock_and_protected_checks(
     assert healthy["dependencies"] == {name: "fixture-version" for name in DEPENDENCIES}
     assert healthy["clock"] == {"synchronized": True}
 
+    for name in ONESHOT_CODEXNET_UNITS:
+        probe.service_values[name] = {
+            "unit": name,
+            "available": True,
+            "active_state": "inactive",
+            "sub_state": "dead",
+            "result": "success",
+        }
+    completed_oneshots = collect_doctor(configuration(tmp_path), probe=probe)
+    assert completed_oneshots["ok"] is True
+
     probe.missing_dependencies.add(DEPENDENCIES[0])
-    probe.service_values[CODEXNET_UNITS[0]] = {
-        "unit": CODEXNET_UNITS[0],
+    probe.service_values[ACTIVE_CODEXNET_UNITS[0]] = {
+        "unit": ACTIVE_CODEXNET_UNITS[0],
         "available": False,
     }
-    probe.service_values[CODEXNET_UNITS[1]] = {
-        "unit": CODEXNET_UNITS[1],
+    probe.service_values[ACTIVE_CODEXNET_UNITS[1]] = {
+        "unit": ACTIVE_CODEXNET_UNITS[1],
         "available": True,
         "active_state": "failed",
+        "result": "failed",
     }
     probe.clock_value = False
     probe.protected_values = [
@@ -267,8 +282,8 @@ def test_doctor_classifies_dependencies_services_clock_and_protected_checks(
     assert degraded["ok"] is False
     statuses = {item["name"]: item["status"] for item in degraded["checks"]}  # type: ignore[index]
     assert statuses[f"dependency_{DEPENDENCIES[0].casefold()}"] == "error"
-    assert statuses[f"service_{CODEXNET_UNITS[0]}"] == "warning"
-    assert statuses[f"service_{CODEXNET_UNITS[1]}"] == "error"
+    assert statuses[f"service_{ACTIVE_CODEXNET_UNITS[0]}"] == "warning"
+    assert statuses[f"service_{ACTIVE_CODEXNET_UNITS[1]}"] == "error"
     assert statuses["clock"] == "error"
     probe.clock_value = None
     unknown = collect_doctor(configuration(tmp_path), probe=probe)

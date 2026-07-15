@@ -7,7 +7,7 @@ if [ -z "$root" ] && [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-units="field-discovery-passive.service field-discovery-nmap-import.timer field-discovery-nmap-import.service field-discovery-backup.timer field-discovery-backup.service field-discovery-recovery.service"
+units="field-discovery-passive.service field-discovery-scheduler.service field-discovery-nmap-import.timer field-discovery-nmap-import.service field-discovery-backup.timer field-discovery-backup.service field-discovery-recovery.service"
 
 if [ -z "$root" ]; then
     for unit in $units; do

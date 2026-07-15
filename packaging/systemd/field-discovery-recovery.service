@@ -1,7 +1,7 @@
 [Unit]
 Description=CodexNet boot-time interrupted-run recovery
 Documentation=file:/opt/field-discovery/docs/storage-recovery.md
-Before=field-discovery-passive.service field-discovery-nmap-import.service field-discovery-backup.service
+Before=field-discovery-passive.service field-discovery-scheduler.service field-discovery-nmap-import.service field-discovery-backup.service
 
 [Service]
 Type=oneshot

@@ -77,6 +77,7 @@ _DEFAULTS: dict[str, Any] = {
             "protocol": "v3",
             "allow_insecure_v2c": False,
             "credential_ref": None,
+            "targets": [],
         },
         "unifi": {"enabled": False, "endpoints": []},
         "ad": {
@@ -86,6 +87,7 @@ _DEFAULTS: dict[str, Any] = {
             "domain": None,
             "base_dn": None,
             "server_name": None,
+            "target": None,
             "page_size": 500,
             "max_entries": 10000,
             "documentation_groups": [],
@@ -95,6 +97,7 @@ _DEFAULTS: dict[str, Any] = {
             "enabled": False,
             "host_key_policy": "strict",
             "credential_ref": None,
+            "targets": [],
         },
     },
     "secret_providers": {},
@@ -141,7 +144,13 @@ _ALLOWED: dict[str, set[str]] = {
     },
     "storage": {"minimum_free_bytes", "minimum_free_percent"},
     "collectors": {"snmp", "unifi", "ad", "ssh"},
-    "collectors.snmp": {"enabled", "protocol", "allow_insecure_v2c", "credential_ref"},
+    "collectors.snmp": {
+        "enabled",
+        "protocol",
+        "allow_insecure_v2c",
+        "credential_ref",
+        "targets",
+    },
     "collectors.unifi": {"enabled", "endpoints"},
     "collectors.ad": {
         "enabled",
@@ -150,12 +159,13 @@ _ALLOWED: dict[str, set[str]] = {
         "domain",
         "base_dn",
         "server_name",
+        "target",
         "page_size",
         "max_entries",
         "documentation_groups",
         "credential_ref",
     },
-    "collectors.ssh": {"enabled", "host_key_policy", "credential_ref"},
+    "collectors.ssh": {"enabled", "host_key_policy", "credential_ref", "targets"},
     "report": {
         "confidentiality",
         "template",
@@ -202,7 +212,7 @@ def validate_config(document: object) -> Configuration:
     _validate_types(merged)
     _validate_targets(merged["active"])
     _validate_providers_and_references(merged)
-    _validate_protocols(merged["collectors"])
+    _validate_protocols(merged["collectors"], merged["active"])
     return Configuration(merged)
 
 
@@ -253,6 +263,9 @@ def _check_known_keys(value: dict[Any, Any], path: str) -> None:
         elif child_path == "collectors.unifi.endpoints" and isinstance(child, list):
             for index, endpoint in enumerate(child):
                 _check_endpoint_keys(endpoint, f"{child_path}[{index}]")
+        elif child_path == "collectors.ssh.targets" and isinstance(child, list):
+            for index, target in enumerate(child):
+                _check_ssh_target_keys(target, f"{child_path}[{index}]")
 
 
 def _check_provider_keys(provider: object, path: str) -> None:
@@ -274,8 +287,24 @@ def _check_endpoint_keys(endpoint: object, path: str) -> None:
     if not isinstance(endpoint, dict):
         raise ConfigurationError(f"{path} must be a mapping")
     unknown = sorted(
-        set(endpoint) - {"url", "api_type", "verify_tls", "allow_self_signed", "credential_ref"}
+        set(endpoint)
+        - {
+            "url",
+            "api_type",
+            "verify_tls",
+            "allow_self_signed",
+            "credential_ref",
+            "approved_address",
+        }
     )
+    if unknown:
+        raise ConfigurationError(f"{path} contains unknown key: {unknown[0]}")
+
+
+def _check_ssh_target_keys(target: object, path: str) -> None:
+    if not isinstance(target, dict):
+        raise ConfigurationError(f"{path} must be a mapping")
+    unknown = sorted(set(target) - {"address", "platform"})
     if unknown:
         raise ConfigurationError(f"{path} contains unknown key: {unknown[0]}")
 
@@ -430,13 +459,42 @@ def _validate_providers_and_references(config: dict[str, Any]) -> None:
             raise ConfigurationError(f"{path}.key must be an uppercase secret identifier")
 
 
-def _validate_protocols(collectors: dict[str, Any]) -> None:
+def _configured_ipv4(
+    value: object,
+    path: str,
+    *,
+    approved_ranges: list[str],
+    require_approval: bool,
+) -> str:
+    if not isinstance(value, str):
+        raise ConfigurationError(f"{path} must be one IPv4 address")
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ipaddress.AddressValueError as exc:
+        raise ConfigurationError(f"{path} must be one IPv4 address") from exc
+    if require_approval and not any(
+        address in ipaddress.IPv4Network(network) for network in approved_ranges
+    ):
+        raise ConfigurationError(f"{path} is outside active.approved_ranges")
+    return str(address)
+
+
+def _validate_protocols(collectors: dict[str, Any], active: dict[str, Any]) -> None:
     snmp = collectors["snmp"]
     _boolean(snmp["allow_insecure_v2c"], "collectors.snmp.allow_insecure_v2c")
     if snmp["protocol"] not in {"v3", "v2c"}:
         raise ConfigurationError("collectors.snmp.protocol must be v3 or v2c")
     if snmp["protocol"] == "v2c" and not snmp["allow_insecure_v2c"]:
         raise ConfigurationError("SNMPv2c requires explicit allow_insecure_v2c: true")
+    if not isinstance(snmp["targets"], list) or len(snmp["targets"]) > active["max_hosts"]:
+        raise ConfigurationError("collectors.snmp.targets must be a bounded list")
+    for index, target in enumerate(snmp["targets"]):
+        _configured_ipv4(
+            target,
+            f"collectors.snmp.targets[{index}]",
+            approved_ranges=active["approved_ranges"],
+            require_approval=snmp["enabled"],
+        )
     ad = collectors["ad"]
     _boolean(ad["allow_plaintext_ldap"], "collectors.ad.allow_plaintext_ldap")
     if ad["transport"] not in {"kerberos", "ldaps", "ldap"}:
@@ -457,6 +515,15 @@ def _validate_protocols(collectors: dict[str, Any]) -> None:
             raise ConfigurationError(
                 "collectors.ad.server_name must be null or a qualified hostname"
             )
+    if ad["target"] is not None:
+        _configured_ipv4(
+            ad["target"],
+            "collectors.ad.target",
+            approved_ranges=active["approved_ranges"],
+            require_approval=ad["enabled"],
+        )
+    elif ad["enabled"]:
+        raise ConfigurationError("enabled AD collection requires one approved target")
     _integer(ad["page_size"], "collectors.ad.page_size", 1, 1000)
     _integer(ad["max_entries"], "collectors.ad.max_entries", 1, 100000)
     groups = ad["documentation_groups"]
@@ -471,6 +538,18 @@ def _validate_protocols(collectors: dict[str, Any]) -> None:
     ssh = collectors["ssh"]
     if ssh["host_key_policy"] not in {"strict", "accept-new"}:
         raise ConfigurationError("collectors.ssh.host_key_policy must be strict or accept-new")
+    if not isinstance(ssh["targets"], list) or len(ssh["targets"]) > active["max_hosts"]:
+        raise ConfigurationError("collectors.ssh.targets must be a bounded list")
+    for index, target in enumerate(ssh["targets"]):
+        path = f"collectors.ssh.targets[{index}]"
+        _configured_ipv4(
+            target.get("address"),
+            f"{path}.address",
+            approved_ranges=active["approved_ranges"],
+            require_approval=ssh["enabled"],
+        )
+        if target.get("platform") not in {"cisco_ios", "hp_comware", "aruba_aos"}:
+            raise ConfigurationError(f"{path}.platform must be cisco_ios, hp_comware, or aruba_aos")
     for index, endpoint in enumerate(collectors["unifi"]["endpoints"]):
         path = f"collectors.unifi.endpoints[{index}]"
         if endpoint.get("api_type", "modern") not in {"modern", "legacy"}:
@@ -487,6 +566,16 @@ def _validate_protocols(collectors: dict[str, Any]) -> None:
             raise ConfigurationError(f"{path}.url must not contain credential query parameters")
         if _contains_credential_parameter(parsed.fragment):
             raise ConfigurationError(f"{path}.url must not contain credential fragments")
+        approved_address = endpoint.get("approved_address")
+        if approved_address is not None:
+            _configured_ipv4(
+                approved_address,
+                f"{path}.approved_address",
+                approved_ranges=active["approved_ranges"],
+                require_approval=collectors["unifi"]["enabled"],
+            )
+        elif collectors["unifi"]["enabled"]:
+            raise ConfigurationError(f"{path}.approved_address is required when UniFi is enabled")
         _boolean(endpoint.get("verify_tls"), f"{path}.verify_tls")
         _boolean(endpoint.get("allow_self_signed"), f"{path}.allow_self_signed")
         if not endpoint["verify_tls"] and not endpoint["allow_self_signed"]:

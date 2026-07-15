@@ -46,6 +46,8 @@ secret_providers:
 collectors:
   snmp:
     enabled: false
+    # Explicit per-host scheduler targets; empty means no scheduled polling.
+    targets: []
     protocol: v3
     allow_insecure_v2c: false
     credential_ref:
@@ -54,7 +56,9 @@ collectors:
   unifi:
     enabled: false
     endpoints:
-      - url: https://unifi.example.invalid
+      - url: https://192.168.50.2
+        # Concrete address checked against active.approved_ranges before scheduled use.
+        approved_address: 192.168.50.2
         api_type: modern
         verify_tls: true
         allow_self_signed: false
@@ -68,6 +72,8 @@ collectors:
     domain: example.invalid
     base_dn: DC=example,DC=invalid
     server_name: dc1.example.invalid
+    # Concrete approved DC address used by the scheduler; never inferred from credentials.
+    target: null
     page_size: 500
     max_entries: 10000
     # Exact groups whose membership is required for documentation; empty collects none.
@@ -78,6 +84,8 @@ collectors:
       key: AD_SITE_PROFILE
   ssh:
     enabled: false
+    # Each scheduled target has an explicit conservative platform selection.
+    targets: []
     host_key_policy: strict
     credential_ref:
       provider: secret_helper

@@ -25,6 +25,15 @@ positive jitter. A stop request cancels an in-flight cycle and prevents another.
 command exposes the newest 20 durable run summaries and aggregate error counts; T602 will add the
 remaining appliance and service diagnostics.
 
+The production `field-discovery-scheduler.service` connects that lifecycle to systemd. Its
+unprivileged process builds secret-free child command vectors only for collectors explicitly
+enabled in configuration: per-host `snmp.targets`, a concrete approved address for every UniFi
+endpoint, one `ad.target`, and per-host/platform `ssh.targets`. Empty or disabled profiles are idle.
+Each collector family runs in an independently bounded child process, so one timeout or failure is
+reported without suppressing later collectors or cycles. Configuration changes take effect after
+the service is restarted; credential values remain in the configured providers and never enter
+process arguments.
+
 Verification is offline:
 
 ```bash

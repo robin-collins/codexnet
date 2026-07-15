@@ -60,6 +60,7 @@
             "enabled": {"type": "boolean", "default": false},
             "protocol": {"enum": ["v3", "v2c"], "default": "v3"},
             "allow_insecure_v2c": {"type": "boolean", "default": false},
+            "targets": {"type": "array", "items": {"type": "string"}, "default": []},
             "credential_ref": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/secretRef"}]}
           }
         },
@@ -79,6 +80,7 @@
             "domain": {"type": ["string", "null"]},
             "base_dn": {"type": ["string", "null"]},
             "server_name": {"type": ["string", "null"]},
+            "target": {"type": ["string", "null"]},
             "page_size": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 500},
             "max_entries": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 10000},
             "documentation_groups": {
@@ -93,6 +95,17 @@
           "properties": {
             "enabled": {"type": "boolean", "default": false},
             "host_key_policy": {"enum": ["strict", "accept-new"], "default": "strict"},
+            "targets": {
+              "type": "array", "default": [],
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["address", "platform"],
+                "properties": {
+                  "address": {"type": "string"},
+                  "platform": {"enum": ["cisco_ios", "hp_comware", "aruba_aos"]}
+                }
+              }
+            },
             "credential_ref": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/secretRef"}]}
           }
         }
@@ -145,6 +158,7 @@
       "properties": {
         "url": {"type": "string", "pattern": "^https://"},
         "api_type": {"enum": ["modern", "legacy"], "default": "modern"},
+        "approved_address": {"type": ["string", "null"]},
         "verify_tls": {"type": "boolean", "default": true},
         "allow_self_signed": {"type": "boolean", "default": false},
         "credential_ref": {"$ref": "#/$defs/secretRef"}

@@ -47,7 +47,7 @@ collector target.
 ```bash
 field-discovery --config /etc/field-discovery/config.yaml status
 field-discovery --config /etc/field-discovery/config.yaml doctor
-systemctl status field-discovery-passive.service field-discovery-nmap-import.timer field-discovery-backup.timer
+systemctl status field-discovery-passive.service field-discovery-scheduler.service field-discovery-nmap-import.timer field-discovery-backup.timer
 ```
 
 The passive service records bounded structured LLDP/CDP, mDNS, DHCP, ARP, and neighbor evidence;
@@ -57,12 +57,15 @@ customer content into tickets or Git:
 
 ```bash
 journalctl -u field-discovery-passive.service --since today
+journalctl -u field-discovery-scheduler.service --since today
 journalctl -u field-discovery-nmap-import.service --since today
 field-discovery --json --config /etc/field-discovery/config.yaml status
 ```
 
-Run configured collectors explicitly against approved targets. One collector failure does not
-stop the others; review partial coverage before reporting.
+The scheduler runs only collector profiles whose `enabled` flag is true and whose concrete targets
+are listed in configuration. Restart `field-discovery-scheduler.service` after an approved config
+change. You can also run configured collectors explicitly against approved targets. One collector
+failure does not stop the others; review partial coverage before reporting.
 
 ```bash
 field-discovery --config /etc/field-discovery/config.yaml collect snmp --target 192.168.50.2

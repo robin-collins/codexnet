@@ -35,6 +35,7 @@ def test_backup_timer_and_recovery_order_are_restart_safe(tmp_path: Path) -> Non
     assert "db recover --confirm-stopped" in recovery and "RemainAfterExit=true" in recovery
     for name in (
         "field-discovery-passive.service",
+        "field-discovery-scheduler.service",
         "field-discovery-nmap-import.service",
         "field-discovery-backup.service",
     ):

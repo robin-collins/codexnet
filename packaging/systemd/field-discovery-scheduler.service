@@ -1,0 +1,64 @@
+[Unit]
+Description=CodexNet bounded collector scheduler
+Documentation=file:/opt/field-discovery/docs/collector-framework.md
+After=network-online.target field-discovery-recovery.service
+Wants=network-online.target field-discovery-recovery.service
+StartLimitIntervalSec=15min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=field-discovery
+Group=field-discovery
+UMask=0077
+ExecStart=/opt/field-discovery/venv/bin/field-discovery-scheduler --config /etc/field-discovery/config.yaml
+Restart=on-failure
+RestartSec=30s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=field-discovery-scheduler
+
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/field-discovery
+ReadWritePaths=/var/lib/field-discovery
+StateDirectory=field-discovery
+StateDirectoryMode=0750
+RuntimeDirectory=field-discovery
+RuntimeDirectoryMode=0750
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@mount @privileged @reboot @resources @swap
+PrivateMounts=true
+RemoveIPC=true
+
+MemoryHigh=384M
+MemoryMax=512M
+CPUQuota=40%
+TasksMax=64
+LimitNOFILE=256
+OOMPolicy=stop
+
+[Install]
+WantedBy=multi-user.target

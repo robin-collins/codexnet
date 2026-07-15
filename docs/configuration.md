@@ -19,6 +19,14 @@ does not itself authorise a target. Loopback, link-local, public, IPv6, and
 over-size ranges fail validation. Excluded interfaces require an explicit
 override.
 
+Scheduled active collectors require concrete per-host targets in addition to the containing
+approved range. Configure `collectors.snmp.targets`, `collectors.ad.target`, and
+`collectors.ssh.targets` (each SSH entry also names one supported platform). Every UniFi endpoint
+has an `approved_address`, and its HTTPS URL host must be that same literal IPv4 address when
+collection runs. This pins the connection target without trusting mutable DNS; the controller
+certificate must contain the address, or the explicit per-endpoint self-signed exception must be
+reviewed. Disabled collectors and empty target lists produce no scheduled network traffic.
+
 `paths.data_root` is the real CodexNet-owned state directory, and
 `paths.database` must be lexically inside it without parent traversal. Runtime database backup,
 export, and pruning additionally refuse symlinks, missing parents, and destinations outside that

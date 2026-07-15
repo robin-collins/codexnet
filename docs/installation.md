@@ -53,12 +53,13 @@ export PATH=/opt/field-discovery/venv/bin:"$PATH"
 field-discovery --version
 ```
 
-Install the dedicated account and six CodexNet units. Each installer copies files and reloads
+Install the dedicated account and seven CodexNet units. Each installer copies files and reloads
 systemd but deliberately enables and starts nothing. The nmap installer schedules only completed
 XML import; it cannot launch nmap.
 
 ```bash
 sudo /opt/field-discovery/packaging/install/install-passive-service.sh /opt/field-discovery
+sudo /opt/field-discovery/packaging/install/install-scheduler-service.sh /opt/field-discovery
 sudo /opt/field-discovery/packaging/install/install-nmap-import-service.sh /opt/field-discovery
 sudo /opt/field-discovery/packaging/install/install-maintenance-services.sh /opt/field-discovery
 sudo systemd-analyze verify /usr/lib/systemd/system/field-discovery-*.service /usr/lib/systemd/system/field-discovery-*.timer
@@ -88,6 +89,7 @@ start before other CodexNet writers.
 ```bash
 sudo systemctl enable --now field-discovery-recovery.service
 sudo systemctl enable --now field-discovery-passive.service
+sudo systemctl enable --now field-discovery-scheduler.service
 sudo systemctl enable --now field-discovery-nmap-import.timer
 sudo systemctl enable --now field-discovery-backup.timer
 systemctl list-timers field-discovery-nmap-import.timer field-discovery-backup.timer
@@ -105,7 +107,7 @@ and save the current commit identifier outside the customer report tree.
 
 ```bash
 /opt/field-discovery/venv/bin/field-discovery --config /etc/field-discovery/config.yaml db backup
-sudo systemctl stop field-discovery-passive.service field-discovery-nmap-import.timer field-discovery-backup.timer
+sudo systemctl stop field-discovery-passive.service field-discovery-scheduler.service field-discovery-nmap-import.timer field-discovery-backup.timer
 ```
 
 Export the new commit into a new empty `/opt/field-discovery.next` directory. Rename the current
@@ -122,11 +124,12 @@ sudo python3 -m venv /opt/field-discovery/venv
 cd /opt/field-discovery
 sudo venv/bin/python -m pip install --requirement requirements-dev.lock
 sudo packaging/install/install-passive-service.sh /opt/field-discovery
+sudo packaging/install/install-scheduler-service.sh /opt/field-discovery
 sudo packaging/install/install-nmap-import-service.sh /opt/field-discovery
 sudo packaging/install/install-maintenance-services.sh /opt/field-discovery
 sudo -u field-discovery venv/bin/field-discovery --config /etc/field-discovery/config.yaml config validate
 sudo -u field-discovery venv/bin/field-discovery --config /etc/field-discovery/config.yaml db check
-sudo systemctl start field-discovery-recovery.service field-discovery-passive.service field-discovery-nmap-import.timer field-discovery-backup.timer
+sudo systemctl start field-discovery-recovery.service field-discovery-passive.service field-discovery-scheduler.service field-discovery-nmap-import.timer field-discovery-backup.timer
 venv/bin/field-discovery --config /etc/field-discovery/config.yaml doctor
 ```
 
