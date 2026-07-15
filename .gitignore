@@ -20,6 +20,16 @@ dist/
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.docx
+*.pdf
+*.pcap
+*.pcapng
+*.cap
+*.bak
+*.backup
 artifacts/
 reports/
 logs/

@@ -486,6 +486,10 @@ def test_netmiko_adapter_passes_in_memory_profile_and_runs_commands(
     assert parameters["device_type"] == "cisco_ios"
     assert parameters["password"] == "synthetic-secret"
     assert parameters["ssh_strict"] is True
+    assert parameters["disabled_algorithms"] == {
+        "keys": ["ssh-rsa"],
+        "pubkeys": ["ssh-rsa"],
+    }
     assert parameters["use_keys"] is True
     assert parameters["port"] == 2222
     assert connection.calls == [("show version", True, 20)]

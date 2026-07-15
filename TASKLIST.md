@@ -342,7 +342,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** stays within documented CPU/memory/disk budgets; no unbounded queues/logs/artifacts; restart/reboot recovery and individual collector isolation pass.
 - **Balance:** compare Scanopy availability and existing nmap cron/checksum to T000 baseline.
 
-### [ ] T606 Complete security and privacy release review
+### [x] T606 Complete security and privacy release review
 
 - **Depends on:** T601, T603, T605
 - **Deliver:** dependency audit, filesystem-permission review, systemd sandbox review, capability review, secret scan, prohibited-AD-feature scan, target-control test, TLS review, and customer-data inventory/deletion verification.

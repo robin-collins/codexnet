@@ -340,6 +340,9 @@ class NetmikoSessionFactory:
             "banner_timeout": 20,
             "ssh_strict": host_key_policy == "strict",
             "system_host_keys": host_key_policy == "strict",
+            # Paramiko 4 can otherwise negotiate legacy RSA/SHA-1 (CVE-2026-44405).
+            # Keep RSA-SHA2 available while refusing only the SSH-RSA/SHA-1 algorithm.
+            "disabled_algorithms": {"keys": ["ssh-rsa"], "pubkeys": ["ssh-rsa"]},
         }
         if credential.get("password"):
             parameters["password"] = credential["password"]

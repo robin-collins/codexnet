@@ -24,7 +24,7 @@ pynacl==1.6.2
 pyserial==3.5
 PyYAML==6.0.2
 pysnmp==7.1.27
-pytest==8.4.1
+pytest==9.0.3
 pytest-cov==6.2.1
 ruff==0.12.4
 rich==15.0.0
