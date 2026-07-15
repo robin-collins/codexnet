@@ -53,7 +53,9 @@ RestrictAddressFamilies=AF_UNIX AF_PACKET AF_NETLINK
 IPAddressDeny=any
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-SystemCallFilter=~@mount @privileged @reboot @resources @swap
+# The iproute2 neighbor reader calls capset only to drop its inherited CAP_NET_RAW.
+# CapabilityBoundingSet and NoNewPrivileges remain the authoritative privilege boundary.
+SystemCallFilter=~@mount @reboot @resources @swap
 PrivateMounts=true
 RemoveIPC=true
 

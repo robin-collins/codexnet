@@ -637,7 +637,7 @@ def test_systemd_unit_is_narrowly_privileged_and_resource_bounded(tmp_path: Path
     assert "ReadWritePaths=/var/lib/field-discovery" in unit
     assert "RestrictAddressFamilies=AF_UNIX AF_PACKET AF_NETLINK" in unit
     assert "IPAddressDeny=any" in unit
-    assert "SystemCallFilter=~@mount @privileged @reboot @resources @swap" in unit
+    assert "SystemCallFilter=~@mount @reboot @resources @swap" in unit
     assert "PrivateMounts=true" in unit and "RemoveIPC=true" in unit
     assert "AF_INET" not in unit and "AF_INET6" not in unit
     assert "scan nmap" not in unit and "network-discovery-scan.sh" not in unit

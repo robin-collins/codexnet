@@ -97,6 +97,7 @@ def test_services_are_unprivileged_confined_and_capability_minimal(unit: Path) -
     if unit.name == "field-discovery-passive.service":
         assert "CapabilityBoundingSet=CAP_NET_RAW" in text
         assert "AmbientCapabilities=CAP_NET_RAW" in text
+        assert "SystemCallFilter=~@mount @reboot @resources @swap" in text
     else:
         assert re.search(r"(?m)^CapabilityBoundingSet=$", text)
         assert re.search(r"(?m)^AmbientCapabilities=$", text)
