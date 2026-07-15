@@ -54,15 +54,15 @@ were not accessed.
 
 ## Protected nmap script and schedule
 
-The existing script was observed without reading or changing its contents:
+The current approved script state is:
 
 | Item | Observed value |
 |---|---|
 | Path | `/usr/local/sbin/network-discovery-scan.sh` |
-| SHA-256 | `09bfdfd6d034c38882dfddf7cb648d64fc326fcf164f4c68ae49cb103eb2e526` |
+| SHA-256 | `1e502d15a5fe6663c97045660a31b5e4db1534e972d882839081edcea6f4659d` |
 | Mode and owner | `0755`, `root:root` |
-| Size | 9,018 bytes |
-| Modification time | 2026-07-14 22:07:29 +09:30 |
+| Size | 9,815 bytes |
+| Modification time | 2026-07-15 12:04:31 +09:30 |
 
 No nmap schedule was found at capture time. Both `crontab -l` and
 `sudo -n crontab -l` reported no crontab for `osit` and `root`, respectively.
@@ -80,6 +80,17 @@ The initial restricted T000 execution view reported script ownership as
 actual host ownership as `root:root`; checksum, size, mode, and nanosecond mtime
 were identical. The ownership row above records the host value for subsequent
 gates.
+
+On 2026-07-15 the appliance owner explicitly approved a producer-side
+permission handoff for CodexNet. The prior script checksum was
+`09bfdfd6d034c38882dfddf7cb648d64fc326fcf164f4c68ae49cb103eb2e526`.
+The reviewed change fixes the import group to `field-discovery` and, only after
+a successful scan, changes completed XML files to `root:field-discovery 0640`
+and their containing result directories to `root:field-discovery 0750`.
+Existing result directories received the same one-time migration. File-content
+digests were identical before and after migration. Logs, summaries, `.nmap`,
+and `.gnmap` files remain `root:root 0600`. No target, nmap option, interface
+selection, retention, cron entry, or systemd scan timer was changed.
 
 ## Repeatable read-only checks
 

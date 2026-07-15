@@ -19,7 +19,7 @@ from typing import Any, Protocol, cast
 from field_discovery.database import APPLICATION_ID, available_migrations
 from field_discovery.subnet import SubnetResolutionError, resolve_subnet
 
-BASELINE_NMAP_SHA256 = "09bfdfd6d034c38882dfddf7cb648d64fc326fcf164f4c68ae49cb103eb2e526"
+BASELINE_NMAP_SHA256 = "1e502d15a5fe6663c97045660a31b5e4db1534e972d882839081edcea6f4659d"
 NMAP_SCRIPT = Path("/usr/local/sbin/network-discovery-scan.sh")
 DEPENDENCIES = (
     "cryptography",

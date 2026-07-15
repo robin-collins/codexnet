@@ -34,6 +34,23 @@ configuration read-only, and allows writes only beneath
 `/var/lib/field-discovery`. Adjust those paths together with the installed
 configuration and unit sandbox if a deployment uses non-default paths.
 
+## Producer-side read access
+
+The protected root scan producer must publish completed XML as
+`root:field-discovery 0640`, with the result root and timestamp directories as
+`root:field-discovery 0750`. Keep the producer's `umask 077`; apply the handoff
+only after scan output is complete. Logs, summaries, `.nmap`, `.gnmap`, and any
+other artifacts remain `root:root 0600`. The approved Pi integration uses the
+fixed `field-discovery` group and never changes scan targets or scheduling.
+
+Before enabling the timer, verify that the service user can read XML but cannot
+read the protected log or non-XML outputs:
+
+```bash
+sudo -u field-discovery find /var/log/network-discovery -type f -name '*.xml' -readable -print
+sudo -u field-discovery test ! -r /var/log/network-discovery/network-discovery.log
+```
+
 ## Optional report refresh
 
 Report generation is disabled by default. After the report command is

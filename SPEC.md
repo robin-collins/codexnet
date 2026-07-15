@@ -14,7 +14,7 @@ The following are already complete and must not be rebuilt unless integration re
 
 - Raspberry Pi base/headless setup.
 - Scanopy installation and operation.
-- `/usr/local/sbin/network-discovery-scan.sh` active nmap discovery script.
+- `/usr/local/sbin/network-discovery-scan.sh` active nmap discovery script. The appliance owner approved a narrow 2026-07-15 integration change that grants the unprivileged importer read access to completed XML only; it did not change scanning, targets, or scheduling.
 - The nmap script was intended to have a root cron schedule, but the T000 baseline found no root/user/system cron entry or matching systemd timer. This discrepancy is recorded in `docs/baseline.md`; absence is not permission to create or replace a schedule.
 - Automatic subnet selection from the customer-facing interface.
 

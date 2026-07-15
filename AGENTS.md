@@ -14,9 +14,9 @@ If the three disagree, stop and resolve the conflict with the user. Do not silen
 
 ## Current protected state
 
-The Pi's headless base setup, Scanopy deployment, `/usr/local/sbin/network-discovery-scan.sh`, and automatic interface-derived subnet behavior already exist. A root cron schedule was expected, but T000 found no root/user/system cron entry or matching systemd timer. Treat the existing components and documented scheduling discrepancy as protected external state.
+The Pi's headless base setup, Scanopy deployment, `/usr/local/sbin/network-discovery-scan.sh`, and automatic interface-derived subnet behavior already exist. A root cron schedule was expected, but T000 found no root/user/system cron entry or matching systemd timer. Treat the existing components and documented scheduling discrepancy as protected external state. On 2026-07-15 the appliance owner approved one narrow integration change: after a successful scan the script may expose completed XML as `root:field-discovery 0640` through `root:field-discovery 0750` result directories. Logs and every non-XML artifact remain `root:root 0600`; scan behavior, targets, and scheduling remain protected.
 
-- Do not edit the existing nmap script or create, replace, or reschedule nmap cron/timers without explicit user approval.
+- Do not make any further edit to the existing nmap script or create, replace, or reschedule nmap cron/timers without explicit user approval.
 - Do not create a competing automatic active-scan schedule.
 - Do not access or modify Scanopy's private database.
 - Recheck Scanopy and nmap/cron health at every stage gate.
