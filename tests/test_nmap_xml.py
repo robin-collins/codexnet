@@ -149,6 +149,34 @@ def test_dtd_and_entities_are_rejected_without_resolution(payload: bytes) -> Non
         parse_nmap_xml(io.BytesIO(payload), limits=ParserLimits(chunk_size=5))
 
 
+def test_canonical_nmap_doctype_is_accepted_across_chunks() -> None:
+    payload = (
+        b'<?xml version="1.0"?><!DOCTYPE nmaprun><nmaprun scanner="nmap">'
+        b'<runstats><finished time="1700000000" exit="success"/></runstats></nmaprun>'
+    )
+
+    scan = parse_nmap_xml(io.BytesIO(payload), limits=ParserLimits(chunk_size=5))
+
+    assert scan.scanner == "nmap"
+
+
+def test_incomplete_doctype_is_rejected() -> None:
+    with pytest.raises(NmapXmlError, match="incomplete DTD"):
+        parse_nmap_xml(io.BytesIO(b"<!DOCTYPE"), limits=ParserLimits(chunk_size=3))
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"<!DOCTYPE other><nmaprun/>",
+        b'<!ENTITY fixture "expanded"><nmaprun/>',
+    ],
+)
+def test_noncanonical_declarations_are_rejected_in_one_chunk(payload: bytes) -> None:
+    with pytest.raises(NmapXmlError, match="prohibited"):
+        parse_nmap_xml(io.BytesIO(payload))
+
+
 @pytest.mark.parametrize(
     ("payload", "limits", "message"),
     [

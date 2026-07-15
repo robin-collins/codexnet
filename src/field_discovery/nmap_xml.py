@@ -2,8 +2,10 @@
 
 The public parser returns only after the complete document has been validated.  It
 does not yield hosts while parsing, so callers can keep database imports atomic.
-DTD and entity declarations are rejected before they reach ElementTree; the
-stdlib parser does not perform network resolution.
+Only nmap's exact, identifier-free ``<!DOCTYPE nmaprun>`` declaration is
+accepted. External identifiers, internal subsets, and entity declarations are
+rejected before they reach ElementTree; the stdlib parser does not perform
+network resolution.
 """
 
 from __future__ import annotations
@@ -316,6 +318,9 @@ def _parse_stream(stream: BinaryIO, limits: ParserLimits) -> NmapScan:
     scan_scripts: list[NmapScript] = []
     finished: ET.Element | None = None
     declaration_tail = b""
+    pending_doctype = b""
+    doctype_marker = b"<!DOCTYPE"
+    canonical_doctype = b"<!DOCTYPE NMAPRUN>"
 
     try:
         while chunk := stream.read(limits.chunk_size):
@@ -324,14 +329,30 @@ def _parse_stream(stream: BinaryIO, limits: ParserLimits) -> NmapScan:
             total += len(chunk)
             if total > limits.max_bytes:
                 raise NmapXmlError("nmap XML exceeds the configured byte limit")
-            declaration_window = (declaration_tail + chunk).upper()
+            declaration_window = (pending_doctype or declaration_tail) + chunk.upper()
             if total == len(chunk) and (
                 chunk.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in chunk
             ):
                 raise NmapXmlError("nmap XML must use an ASCII-compatible encoding")
-            if b"<!DOCTYPE" in declaration_window or b"<!ENTITY" in declaration_window:
-                raise NmapXmlError("DTD and entity declarations are prohibited")
-            declaration_tail = declaration_window[-16:]
+            if b"<!ENTITY" in declaration_window:
+                raise NmapXmlError("entity declarations are prohibited")
+            pending_doctype = b""
+            search_from = 0
+            while (doctype_at := declaration_window.find(doctype_marker, search_from)) >= 0:
+                declaration_end = declaration_window.find(b">", doctype_at)
+                if declaration_end < 0:
+                    fragment = declaration_window[doctype_at:]
+                    if not canonical_doctype.startswith(fragment):
+                        raise NmapXmlError("external or noncanonical DTD is prohibited")
+                    pending_doctype = fragment
+                    break
+                declaration = declaration_window[doctype_at : declaration_end + 1]
+                if declaration != canonical_doctype:
+                    raise NmapXmlError("external or noncanonical DTD is prohibited")
+                search_from = declaration_end + 1
+            declaration_tail = (
+                b"" if pending_doctype else declaration_window[-(len(doctype_marker) - 1) :]
+            )
             parser.feed(chunk)
             for event, element in parser.read_events():
                 if event == "start":
@@ -369,6 +390,8 @@ def _parse_stream(stream: BinaryIO, limits: ParserLimits) -> NmapScan:
                 depth -= 1
         if total == 0:
             raise NmapXmlError("nmap XML document is empty")
+        if pending_doctype:
+            raise NmapXmlError("incomplete DTD declaration is prohibited")
         parser.close()
     except ET.ParseError as exc:
         raise NmapXmlError(f"malformed nmap XML: {exc}") from exc
