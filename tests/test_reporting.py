@@ -158,6 +158,14 @@ def test_generate_reports_publishes_restrictive_valid_self_contained_outputs(
     assert validation.table_count >= 5
     with zipfile.ZipFile(first.docx_path) as archive:
         assert "word/document.xml" in archive.namelist()
+        for opc_name in (
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "word/_rels/document.xml.rels",
+        ):
+            opc_xml = archive.read(opc_name)
+            assert b"xmlns=" in opc_xml
+            assert b"ns0:" not in opc_xml
         document = archive.read("word/document.xml").decode()
         assert "Collection coverage" in document
         assert "Inference" in document
@@ -733,24 +741,60 @@ def test_libreoffice_can_open_generated_docx_when_available(
     if executable is None:
         pytest.skip("LibreOffice headless is not installed on this appliance")
     outputs = generate_reports(
-        repository, populated(repository), tmp_path / "reports", generated_at=NOW
+        repository,
+        populated(repository),
+        tmp_path / "reports",
+        generated_at=NOW,
+        **REPORT_METADATA,
     )
-    converted = tmp_path / "converted"
-    converted.mkdir()
-    result = subprocess.run(
-        [
-            executable,
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            str(converted),
-            str(outputs.docx_path),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=60,
+    validation = validate_docx(
+        outputs.docx_path, redactor=Redactor(["synthetic-libreoffice-compatibility-secret"])
     )
-    assert result.returncode == 0, result.stderr
-    assert list(converted.glob("*.pdf"))
+    assert validation.external_relationships == ()
+
+    def convert(source: Path, destination: Path, profile: Path, output_format: str) -> Path:
+        destination.mkdir()
+        profile.mkdir()
+        result = subprocess.run(
+            [
+                executable,
+                f"-env:UserInstallation={profile.resolve().as_uri()}",
+                "--headless",
+                "--convert-to",
+                output_format,
+                "--outdir",
+                str(destination),
+                str(source),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stderr
+        suffix = output_format.split(":", maxsplit=1)[0]
+        converted = list(destination.glob(f"*.{suffix}"))
+        assert len(converted) == 1, (result.stdout, result.stderr)
+        assert any(profile.iterdir())
+        return converted[0]
+
+    pdf = convert(
+        outputs.docx_path,
+        tmp_path / "converted",
+        tmp_path / "libreoffice-profile",
+        "pdf:writer_pdf_Export",
+    )
+    assert pdf.read_bytes().startswith(b"%PDF-")
+    round_tripped = convert(
+        outputs.docx_path,
+        tmp_path / "round-trip",
+        tmp_path / "round-trip-profile",
+        "docx:Office Open XML Text",
+    )
+    reopened_pdf = convert(
+        round_tripped,
+        tmp_path / "reopened",
+        tmp_path / "reopened-profile",
+        "pdf:writer_pdf_Export",
+    )
+    assert reopened_pdf.read_bytes().startswith(b"%PDF-")

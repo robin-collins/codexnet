@@ -1028,7 +1028,10 @@ def _settings_xml() -> bytes:
 
 
 def _package_parts(model: dict[str, Any], *, template_path: Path | None = None) -> dict[str, bytes]:
-    types = ET.Element(f"{{{_CONTENT}}}Types")
+    # LibreOffice's OOXML importer requires the OPC container roots to use the
+    # default namespace. ElementTree's automatic ``ns0`` prefix is equivalent
+    # XML, but LibreOffice 25.2 rejects packages serialized that way.
+    types = ET.Element("Types", {"xmlns": _CONTENT})
     defaults = (
         ("rels", "application/vnd.openxmlformats-package.relationships+xml"),
         ("xml", "application/xml"),
@@ -1037,7 +1040,7 @@ def _package_parts(model: dict[str, Any], *, template_path: Path | None = None) 
     for extension, content_type in defaults:
         ET.SubElement(
             types,
-            f"{{{_CONTENT}}}Default",
+            "Default",
             {"Extension": extension, "ContentType": content_type},
         )
     overrides = (
@@ -1074,11 +1077,11 @@ def _package_parts(model: dict[str, Any], *, template_path: Path | None = None) 
     for part_name, content_type in overrides:
         ET.SubElement(
             types,
-            f"{{{_CONTENT}}}Override",
+            "Override",
             {"PartName": part_name, "ContentType": content_type},
         )
 
-    relationships = ET.Element(f"{{{_REL}}}Relationships")
+    relationships = ET.Element("Relationships", {"xmlns": _REL})
     root_relationships = (
         (
             "rId1",
@@ -1099,13 +1102,13 @@ def _package_parts(model: dict[str, Any], *, template_path: Path | None = None) 
     for identifier, relationship_type, target in root_relationships:
         ET.SubElement(
             relationships,
-            f"{{{_REL}}}Relationship",
+            "Relationship",
             {"Id": identifier, "Type": relationship_type, "Target": target},
         )
-    document_relationships = ET.Element(f"{{{_REL}}}Relationships")
+    document_relationships = ET.Element("Relationships", {"xmlns": _REL})
     ET.SubElement(
         document_relationships,
-        f"{{{_REL}}}Relationship",
+        "Relationship",
         {
             "Id": "rId1",
             "Type": ("http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"),
@@ -1136,14 +1139,14 @@ def _package_parts(model: dict[str, Any], *, template_path: Path | None = None) 
     ):
         ET.SubElement(
             document_relationships,
-            f"{{{_REL}}}Relationship",
+            "Relationship",
             {"Id": identifier, "Type": relationship_type, "Target": target},
         )
     diagrams = _diagram_assets(model)
     for index, (filename, _title, _payload) in enumerate(diagrams, start=6):
         ET.SubElement(
             document_relationships,
-            f"{{{_REL}}}Relationship",
+            "Relationship",
             {
                 "Id": f"rId{index}",
                 "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",

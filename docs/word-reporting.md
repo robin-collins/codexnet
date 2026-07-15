@@ -46,8 +46,10 @@ self-contained.
 The renderer tests inspect the unzipped package and prove the TOC, numbering, headers, footers,
 page fields, repeating table headings, portrait/landscape sections, image relationships, embedded
 assets, required report sections, metadata, template behavior, deterministic output, and absence
-of external relationships. LibreOffice conversion is run headlessly when LibreOffice/soffice is
-installed; otherwise that optional environment check is explicitly skipped.
+of external relationships. LibreOffice conversion is run headlessly with a temporary isolated user
+profile when LibreOffice/soffice is installed; otherwise that optional environment check is
+explicitly skipped. On Debian 13 ARM64 the minimal tested viewer dependency is
+`libreoffice-writer-nogui` installed with `--no-install-recommends`.
 
 `report validate` is the final release boundary for a DOCX. It inspects every ZIP member under
 bounded entry and expanded-size limits, parses all XML/SVG parts without entity declarations,
