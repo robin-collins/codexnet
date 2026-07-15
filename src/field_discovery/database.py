@@ -69,7 +69,7 @@ def open_database(path: Path) -> sqlite3.Connection:
     if mode != "wal":
         connection.close()
         raise MigrationError(f"SQLite refused WAL journal mode (reported {mode})")
-    if str(path) != ":memory:":
+    if str(path) != ":memory:":  # pragma: no branch - memory mode cannot pass WAL validation
         try:
             for candidate in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
                 if candidate.exists():

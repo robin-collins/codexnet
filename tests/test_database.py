@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import stat
 from pathlib import Path
@@ -280,3 +281,25 @@ def test_database_open_restricts_existing_file_and_refuses_symlink(tmp_path: Pat
     linked.symlink_to(path)
     with pytest.raises(database.MigrationError, match="opened safely"):
         database.open_database(linked)
+
+    fifo = tmp_path / "fifo.db"
+    os.mkfifo(fifo)
+    with pytest.raises(database.MigrationError, match="not a regular file"):
+        database.open_database(fifo)
+
+
+def test_database_open_closes_when_permissions_cannot_be_restricted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "restricted.db"
+    original = Path.chmod
+
+    def refused(candidate: Path, mode: int, *, follow_symlinks: bool = True) -> None:
+        del mode, follow_symlinks
+        if candidate == path:
+            raise OSError("synthetic refusal")
+        original(candidate, 0o600)
+
+    monkeypatch.setattr(Path, "chmod", refused)
+    with pytest.raises(database.MigrationError, match="cannot be restricted"):
+        database.open_database(path)
