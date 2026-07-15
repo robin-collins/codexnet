@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import importlib.resources
+import os
 import sqlite3
+import stat
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 APPLICATION_ID = 0x434E4554  # "CNET"
 BUSY_TIMEOUT_MS = 5_000
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
 
 class MigrationError(RuntimeError):
@@ -47,6 +50,17 @@ def available_migrations() -> tuple[Migration, ...]:
 
 def open_database(path: Path) -> sqlite3.Connection:
     """Open a database with required safety pragmas; no migration is implicit."""
+    if str(path) != ":memory:":
+        try:
+            descriptor = os.open(path, os.O_RDWR | os.O_CREAT | _NOFOLLOW, 0o600)
+            try:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    raise MigrationError("database path is not a regular file")
+                os.fchmod(descriptor, 0o600)
+            finally:
+                os.close(descriptor)
+        except OSError as exc:
+            raise MigrationError("database path cannot be opened safely") from exc
     connection = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1_000, isolation_level=None)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
@@ -55,6 +69,14 @@ def open_database(path: Path) -> sqlite3.Connection:
     if mode != "wal":
         connection.close()
         raise MigrationError(f"SQLite refused WAL journal mode (reported {mode})")
+    if str(path) != ":memory:":
+        try:
+            for candidate in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
+                if candidate.exists():
+                    candidate.chmod(0o600, follow_symlinks=False)
+        except OSError as exc:
+            connection.close()
+            raise MigrationError("database files cannot be restricted") from exc
     return connection
 
 

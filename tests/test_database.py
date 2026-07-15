@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import stat
 from pathlib import Path
 
 import pytest
@@ -109,7 +110,7 @@ def test_empty_database_migrates_to_latest_and_rerun_is_safe(
 
 
 def test_connection_enforces_wal_foreign_keys_and_integrity(
-    connection: sqlite3.Connection,
+    connection: sqlite3.Connection, tmp_path: Path
 ) -> None:
     database.migrate(connection)
     assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
@@ -117,6 +118,10 @@ def test_connection_enforces_wal_foreign_keys_and_integrity(
     assert connection.execute("PRAGMA busy_timeout").fetchone()[0] == database.BUSY_TIMEOUT_MS
     assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    for name in ("discovery.db", "discovery.db-wal", "discovery.db-shm"):
+        path = tmp_path / name
+        if path.exists():
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
     with pytest.raises(sqlite3.IntegrityError):
         connection.execute(
             "INSERT INTO devices(deployment_id, canonical_key, created_at) VALUES (999, 'x', 't')"
@@ -262,3 +267,16 @@ def test_invalid_packaged_filename_is_rejected(
 def test_wal_refusal_closes_connection() -> None:
     with pytest.raises(MigrationError, match="refused WAL"):
         database.open_database(Path(":memory:"))
+
+
+def test_database_open_restricts_existing_file_and_refuses_symlink(tmp_path: Path) -> None:
+    path = tmp_path / "existing.db"
+    path.touch(mode=0o666)
+    path.chmod(0o666)
+    connection = database.open_database(path)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    connection.close()
+    linked = tmp_path / "linked.db"
+    linked.symlink_to(path)
+    with pytest.raises(database.MigrationError, match="opened safely"):
+        database.open_database(linked)
