@@ -370,7 +370,11 @@ def test_local_dependency_service_and_clock_parsers_are_bounded(
     calls: list[tuple[tuple[str, ...], float]] = []
     responses = iter(
         (
-            CommandResult(0, "loaded\nactive\nrunning\nextra-private\n"),
+            CommandResult(
+                0,
+                "Result=success\nLoadState=loaded\nActiveState=active\nSubState=running\n",
+            ),
+            CommandResult(0, "LoadState=loaded\nprivate-output\n"),
             CommandResult(1, "secret-value"),
             CommandResult(0, "yes\n"),
             CommandResult(0, "no\n"),
@@ -387,6 +391,10 @@ def test_local_dependency_service_and_clock_parsers_are_bounded(
     service = probe.service("fixture.service")
     assert service["active_state"] == "active"
     assert probe.service("missing.service") == {"unit": "missing.service", "available": False}
+    assert probe.service("failed-query.service") == {
+        "unit": "failed-query.service",
+        "available": False,
+    }
     assert probe.clock_sync() is True
     assert probe.clock_sync() is False
     assert probe.clock_sync() is None

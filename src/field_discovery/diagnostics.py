@@ -227,21 +227,24 @@ class LocalDiagnosticProbe:
                 "systemctl",
                 "show",
                 "--property=LoadState,ActiveState,SubState,Result",
-                "--value",
                 name,
             ),
             5,
         )
-        values = result.stdout.splitlines()
-        if result.returncode != 0 or len(values) < 4:
+        properties = {}
+        for line in result.stdout.splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key in {"LoadState", "ActiveState", "SubState", "Result"}:
+                properties[key] = value
+        if result.returncode != 0 or len(properties) < 4:
             return {"unit": name, "available": False}
         return {
             "unit": name,
-            "available": values[0] != "not-found",
-            "load_state": values[0],
-            "active_state": values[1],
-            "sub_state": values[2],
-            "result": values[3],
+            "available": properties["LoadState"] != "not-found",
+            "load_state": properties["LoadState"],
+            "active_state": properties["ActiveState"],
+            "sub_state": properties["SubState"],
+            "result": properties["Result"],
         }
 
     def clock_sync(self) -> bool | None:
