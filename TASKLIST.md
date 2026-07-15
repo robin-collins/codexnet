@@ -349,7 +349,7 @@ Cross-stage details are expressed by task IDs below. The diagram shows the prima
 - **Verify:** no unresolved critical/high issue; accepted lower risks are documented with owner and rationale.
 - **Balance:** review raw artifacts, SQLite, logs, JSON, diagrams, DOCX internals, process arguments, configuration, backups, and Git history.
 
-### [ ] G6 Final release gate
+### [x] G6 Final release gate
 
 - **Depends on:** T604, T606
 - **Verify:** every earlier gate is `[x]`; full test suite and Pi `doctor` pass; reboot restores services; reports validate; manual upload-ready DOCX is produced; Scanopy and nmap baseline comparison passes.

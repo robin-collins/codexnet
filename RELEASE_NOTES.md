@@ -8,7 +8,8 @@ produces self-contained Word reports for manual upload to IT Glue, Datto RMM, or
 ## Included
 
 - Continuous bounded passive LLDP/CDP, mDNS, DHCP, ARP, and kernel-neighbour observation.
-- Idempotent, external-entity-safe import of stable nmap XML without scheduling or invoking nmap.
+- Idempotent, external-entity-safe import of stable nmap XML without scheduling or invoking nmap;
+  the canonical identifier-free nmap doctype is supported.
 - Explicit operator-confirmed invocation of the protected nmap script with interface/range guards.
 - Scheduled and one-shot read-only SNMPv3/v2c, UniFi, Active Directory, and Cisco/HP/Aruba SSH
   collection with concrete target approval, timeouts, retries, concurrency limits, and isolation.
@@ -25,6 +26,10 @@ approved private IPv4 range and concrete per-host configuration. SNMPv3, verifie
 LDAPS/Kerberos, and strict SSH host keys are the defaults. SNMPv2c, plaintext LDAP, and a
 self-signed UniFi exception require explicit scoped opt-in. Active nmap remains an operator action;
 CodexNet supplies no active-scan timer. Reports are uploaded manually.
+
+The appliance owner's approved producer-side integration exposes only completed XML to the fixed
+`field-discovery` group after a successful external scan. Scan logs and all non-XML output remain
+root-only; no scan target, option, or schedule is changed.
 
 ## Installation and upgrades
 
